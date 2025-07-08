@@ -1,0 +1,25 @@
+run:
+  # Timeout para a análise, padrão é 1 minuto
+  timeout: 5m
+  # Pular análise de diretórios específicos
+  skip-dirs:
+    - vendor
+
+linters:
+  # Habilita apenas os linters mais rápidos e importantes por padrão
+  enable-all: false
+  # Desabilita alguns que podem ser muito "barulhentos"
+  disable:
+    - exhaustivestruct
+    - nonamedreturns
+  # Habilita explicitamente os que você quer
+  enable:
+    - gofmt
+    - govet
+    - errcheck
+    - staticcheck
+    - unused
+    - gocyclo # Verifica a complexidade
+    - ineffassign
+    - typecheck
+    - gosec # Linter de segurança
