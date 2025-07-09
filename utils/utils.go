@@ -7,8 +7,10 @@ import (
 	"log"
 	"os"
 	"sort"
+	"strconv"
 	"strings"
 	"text/tabwriter"
+	"time"
 )
 
 type Flags struct {
@@ -244,4 +246,43 @@ func Cp(src string, dst string, help bool) {
 		fmt.Println(err)
 		log.Fatal(err)
 	}
+}
+
+func Cal(month string, year string) {
+
+	monthInt, err := strconv.Atoi(month)
+	if err != nil {
+		monthInt = int(time.Now().Month())
+	}
+
+	yearInt, _ := strconv.Atoi(year)
+	if err != nil {
+		yearInt = time.Now().Year()
+	}
+	w := tabwriter.NewWriter(os.Stdout, 0, 0, 1, ' ', tabwriter.AlignRight)
+
+	currentTime := time.Date(yearInt, time.Month(monthInt), 1, 0, 0, 0, 0, time.Local)
+	lastDayOfMonth := time.Date(currentTime.Year(), currentTime.Month()+1, 0, 0, 0, 0, 0, currentTime.Location())
+	firstOfMonth := time.Date(currentTime.Year(), currentTime.Month(), 1, 0, 0, 0, 0, currentTime.Location())
+
+	fmt.Fprintf(w, "\t\t%s %d\n", currentTime.Month(), currentTime.Year())
+
+	fmt.Fprintln(w, "Su\tMo\tTu\tWe\tTh\tFr\tSa\t")
+
+	for range int(firstOfMonth.Weekday()) {
+		fmt.Fprintf(w, " \t")
+	}
+
+	for i := 1; i <= int(lastDayOfMonth.Day()); i++ {
+		fmt.Fprintf(w, "%d\t", i)
+
+		if (i+int(firstOfMonth.Weekday()))%7 == 0 {
+			fmt.Fprintln(w)
+		}
+
+	}
+	fmt.Fprintln(w)
+
+	w.Flush()
+
 }

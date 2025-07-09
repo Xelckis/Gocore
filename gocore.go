@@ -43,6 +43,8 @@ func main() {
 		utils.Tail(flag.Arg(1), *helpFlag, *bytesFlag)
 	case "cp":
 		utils.Cp(flag.Arg(1), flag.Arg(2), *helpFlag)
+	case "cal":
+		utils.Cal(flag.Arg(1), flag.Arg(2))
 	}
 
 }
