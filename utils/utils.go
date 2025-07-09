@@ -20,7 +20,7 @@ type Flags struct {
 // String interface for flags
 func (f Flags) String() string {
 	var flag string
-	s := fmt.Sprintf("%s\n\tAvailable flags:\n", f.Name)
+	s := f.Name + "\n\tAvailable flags:\n"
 	for i := range len(f.Flag) {
 		flag += fmt.Sprintf("\t\t%s\t%s\n", f.Flag[i], f.Desc[i])
 	}
@@ -29,7 +29,7 @@ func (f Flags) String() string {
 
 // make ls column view
 func columnise(w *tabwriter.Writer, opt []string) {
-	for i := 0; i < len(opt); i = i + 3 {
+	for i := 0; i < len(opt); i += 3 {
 		if i == len(opt)-1 {
 			fmt.Fprintln(w, fmt.Sprintf("%s\t", opt[i]))
 		} else if i == len(opt)-2 {
@@ -40,49 +40,27 @@ func columnise(w *tabwriter.Writer, opt []string) {
 	}
 }
 
-// classification verification for column view
-func classifyVerColumn(dir string, file string, options *[]string) {
+// append indicator (one of /*@|) to entries
+func classifyVer(dir string, options *[]string) {
 	err := os.Chdir(dir)
 	if err != nil {
 		log.Fatal(err)
 	}
-	fi, err := os.Lstat(file)
-	if err != nil {
-		log.Fatal(err)
-	}
-	switch mode := fi.Mode(); {
-	case mode.IsRegular():
-		*options = append(*options, file)
-	case mode.IsDir():
-		*options = append(*options, file+"/")
-	case mode&fs.ModeSymlink != 0:
-		*options = append(*options, file+"@")
-	case mode&fs.ModeNamedPipe != 0:
-		*options = append(*options, file+"|")
-	}
-}
+	for idx, file := range *options {
+		fi, err := os.Lstat(file)
+		if err != nil {
+			log.Fatal(err)
+		}
 
-// classsification verification for normal view
-func classifyVer(dir string, file string) string {
-	err := os.Chdir(dir)
-	if err != nil {
-		log.Fatal(err)
+		switch mode := fi.Mode(); {
+		case mode.IsDir():
+			(*options)[idx] = file + "/"
+		case mode&fs.ModeSymlink != 0:
+			(*options)[idx] = file + "@"
+		case mode&fs.ModeNamedPipe != 0:
+			(*options)[idx] = file + "|"
+		}
 	}
-	fi, err := os.Lstat(file)
-	if err != nil {
-		log.Fatal(err)
-	}
-	switch mode := fi.Mode(); {
-	case mode.IsRegular():
-		return fmt.Sprintln(file)
-	case mode.IsDir():
-		return fmt.Sprintln(file + "/")
-	case mode&fs.ModeSymlink != 0:
-		return fmt.Sprintln(file + "@")
-	case mode&fs.ModeNamedPipe != 0:
-		return fmt.Sprintln(file + "|")
-	}
-	return ""
 }
 
 func Ls(dir string, allDir bool, column bool, classify bool, help bool) {
@@ -100,73 +78,27 @@ func Ls(dir string, allDir bool, column bool, classify bool, help bool) {
 
 	// if no dir is specified use the current dir
 	if dir == "" {
-		pwd, _ := os.Getwd()
-		files, err := os.ReadDir(pwd)
-		if err != nil {
-			log.Fatal(err)
-		}
-
-		// checks if column view is true and print the result in column view
-		if column {
-			w := new(tabwriter.Writer)
-			w.Init(os.Stdout, 0, 0, 10, ' ', 0)
-
-			var options []string
-
-			for _, file := range files {
-
-				// checks if file is hidden and if almost-all flag is true (-A)
-				if strings.HasPrefix(file.Name(), ".") && allDir {
-					// checks if --classify flag is true (-F)
-					if classify {
-						classifyVerColumn(pwd, file.Name(), &options)
-					} else {
-						options = append(options, file.Name())
-					}
-				} else {
-					// checks if --classify flag is true (-F)
-					if classify {
-						classifyVerColumn(pwd, file.Name(), &options)
-
-					} else {
-						options = append(options, file.Name())
-					}
-				}
-			}
-			sort.Strings(options)
-			columnise(w, options)
-
-			w.Flush()
-			return
-		}
-
-		//Normal view
-		for _, file := range files {
-			// checks if file is hidden and if almost-all flag is true (-A)
-			if strings.HasPrefix(file.Name(), ".") && allDir {
-				// checks if --classify flag is true (-F)
-				if classify {
-					fmt.Printf(classifyVer(pwd, file.Name()))
-				} else {
-					fmt.Println(file.Name())
-				}
-			} else {
-				// checks if --classify flag is true (-F)
-
-				if classify {
-					fmt.Printf(classifyVer(pwd, file.Name()))
-				} else {
-					fmt.Println(file.Name())
-				}
-			}
-		}
-		return
+		dir, _ = os.Getwd()
 	}
 
-	//if dir is specified read this dir
 	files, err := os.ReadDir(dir)
 	if err != nil {
 		log.Fatal(err)
+	}
+
+	var result []string
+
+	for _, file := range files {
+		if strings.HasPrefix(file.Name(), ".") && allDir {
+			result = append(result, file.Name())
+		} else {
+			result = append(result, file.Name())
+		}
+
+	}
+
+	if classify {
+		classifyVer(dir, &result)
 	}
 
 	// checks if column view is true and print the result in column view
@@ -174,56 +106,13 @@ func Ls(dir string, allDir bool, column bool, classify bool, help bool) {
 		w := new(tabwriter.Writer)
 		w.Init(os.Stdout, 0, 0, 10, ' ', 0)
 
-		var options []string
-
-		for _, file := range files {
-			// checks if file is hidden and if almost-all flag is true (-A)
-
-			if strings.HasPrefix(file.Name(), ".") && allDir {
-				// checks if --classify flag is true (-F)
-
-				if classify {
-					classifyVerColumn(dir, file.Name(), &options)
-				} else {
-					options = append(options, file.Name())
-				}
-			} else {
-				// checks if --classify flag is true (-F)
-
-				if classify {
-					classifyVerColumn(dir, file.Name(), &options)
-				} else {
-					options = append(options, file.Name())
-				}
-				options = append(options, file.Name())
-			}
-		}
-		sort.Strings(options)
-		columnise(w, options)
+		sort.Strings(result)
+		columnise(w, result)
 
 		w.Flush()
 		return
 	}
 
-	for _, file := range files {
-		// checks if file is hidden and if almost-all flag is true (-A)
-
-		if strings.HasPrefix(file.Name(), ".") && allDir {
-			// checks if --classify flag is true (-F)
-			if classify {
-				fmt.Printf(classifyVer(dir, file.Name()))
-			} else {
-				fmt.Println(file.Name())
-			}
-		} else {
-			// checks if --classify flag is true (-F)
-			if classify {
-				fmt.Printf(classifyVer(dir, file.Name()))
-			} else {
-				fmt.Println(file.Name())
-			}
-		}
-	}
 }
 
 func Mkdir(perm int, dir []string, help bool) {
@@ -242,7 +131,6 @@ func Mkdir(perm int, dir []string, help bool) {
 			log.Fatal(err)
 		}
 	}
-	return
 
 }
 
