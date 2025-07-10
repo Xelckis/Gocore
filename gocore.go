@@ -1,48 +1,41 @@
 package main
 
 import (
-	"fmt"
-
 	flag "github.com/spf13/pflag"
 	"gocore/utils"
+	"os"
 )
 
 func main() {
 
-	allDir := flag.BoolP("almost-all", "A", false, "")
-	permFlag := flag.IntP("mode", "m", 0755, "")
-	helpFlag := flag.BoolP("help", "h", false, "")
-	bytesFlag := flag.IntP("bytes", "c", 0, "")
-	classifyFlag := flag.BoolP("classify", "F", false, "")
-	columFlag := flag.BoolP("C", "C", false, "")
-	flag.Parse()
-
-	if len(flag.Args()) < 1 || (len(flag.Args()) < 1 && *helpFlag) {
-		w := flag.CommandLine.Output()
-		fmt.Fprintf(w, "Usage of coreutils-go:\n")
-		fmt.Fprintln(w, "\nAvailable flags:")
-		fmt.Fprintf(w, "\tls: - list directory contents\n\t\tls [FILE]... [OPTION]...\n\n\tmkdir - make directories\n\t\tmkdir [OPTION]... DIRECTORY...")
-		fmt.Fprintln(w, "\nFor more information, visit https://github.com/Xelckis/Gocore")
-		return
-	}
-
-	switch flag.Arg(0) {
+	switch os.Args[1] {
 	case "ls":
-		utils.Ls(flag.Arg(1), *allDir, *columFlag, *classifyFlag, *helpFlag)
+		lsCmd := flag.NewFlagSet("ls", flag.ExitOnError)
+		allDir := lsCmd.BoolP("almost-all", "A", false, "Lists all entries, including hidden files (those starting with a .), but excludes the current directory (.) and the parent directory (..).")
+		columnFlag := lsCmd.BoolP("column", "C", false, "Forces the output into multiple columns")
+		classifyFlag := lsCmd.BoolP("classify", "F", false, "This flag appends a character to the end of each filename to indicate its type (/*@|).")
+
+		lsCmd.Parse(os.Args[2:])
+		utils.Ls(lsCmd.Arg(0), *allDir, *columnFlag, *classifyFlag)
 	case "mkdir":
-		args := flag.Args()
-		utils.Mkdir(*permFlag, args[1:], *helpFlag)
+		mkdirCmd := flag.NewFlagSet("mkdir", flag.ExitOnError)
+		permFlag := mkdirCmd.IntP("mode", "m", 0755, "set file mode (Default: 0755)")
+		mkdirCmd.Parse(os.Args[2:])
+		utils.Mkdir(*permFlag, mkdirCmd.Args())
 	case "rm":
 		args := flag.Args()
-		utils.Rm(args[1:], *helpFlag)
+		utils.Rm(args[1:])
 	case "cat":
-		utils.Cat(flag.Arg(1), *helpFlag)
+		catCmd := flag.NewFlagSet("cat", flag.ExitOnError)
+		bytesFlag := catCmd.BoolP("bytes", "u", false, "Write bytes from the input file to the standard output without delay as each is read.")
+		catCmd.Parse(os.Args[2:])
+		utils.Cat(catCmd.Arg(0), *bytesFlag)
 	case "head":
-		utils.Head(flag.Arg(1), *helpFlag)
+		utils.Head(flag.Arg(1))
 	case "tail":
-		utils.Tail(flag.Arg(1), *helpFlag, *bytesFlag)
+		utils.Tail(flag.Arg(1), 0)
 	case "cp":
-		utils.Cp(flag.Arg(1), flag.Arg(2), *helpFlag)
+		utils.Cp(flag.Arg(1), flag.Arg(2))
 	case "cal":
 		utils.Cal(flag.Arg(1), flag.Arg(2))
 	}

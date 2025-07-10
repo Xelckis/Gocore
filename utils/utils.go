@@ -13,22 +13,6 @@ import (
 	"time"
 )
 
-type Flags struct {
-	Name string
-	Flag []string
-	Desc []string
-}
-
-// String interface for flags
-func (f Flags) String() string {
-	var flag string
-	s := f.Name + "\n\tAvailable flags:\n"
-	for i := range len(f.Flag) {
-		flag += fmt.Sprintf("\t\t%s\t%s\n", f.Flag[i], f.Desc[i])
-	}
-	return s + flag
-}
-
 // make ls column view
 func columnise(w *tabwriter.Writer, opt []string) {
 	for i := 0; i < len(opt); i += 3 {
@@ -65,19 +49,7 @@ func classifyVer(dir string, options *[]string) {
 	}
 }
 
-func Ls(dir string, allDir bool, column bool, classify bool, help bool) {
-	flag := Flags{
-		Name: "ls: - list directory contents",
-		Flag: []string{"-A , --almost-all", "-F, --classify", "-C"},
-		Desc: []string{"Write out all directory entries, including those whose names begin with a <period> ( '.' ) but excluding the entries dot and dot-dot (if they exist).", "This flag appends a character to the end of each filename to indicate its type.", "list entries by columns"},
-	}
-
-	// prints help (-h --help)
-	if help {
-		fmt.Println(flag)
-		return
-	}
-
+func Ls(dir string, allDir bool, column bool, classify bool) {
 	// if no dir is specified use the current dir
 	if dir == "" {
 		dir, _ = os.Getwd()
@@ -91,9 +63,7 @@ func Ls(dir string, allDir bool, column bool, classify bool, help bool) {
 	var result []string
 
 	for _, file := range files {
-		if strings.HasPrefix(file.Name(), ".") && allDir {
-			result = append(result, file.Name())
-		} else {
+		if !strings.HasPrefix(file.Name(), ".") || allDir {
 			result = append(result, file.Name())
 		}
 
@@ -115,16 +85,13 @@ func Ls(dir string, allDir bool, column bool, classify bool, help bool) {
 		return
 	}
 
+	for _, i := range result {
+		fmt.Println(i)
+	}
+
 }
 
-func Mkdir(perm int, dir []string, help bool) {
-	if help || len(dir) < 1 {
-		fmt.Println("mkdir - make directories")
-		fmt.Println("\tAvailable flags:")
-		fmt.Printf("\t\t-m, --mode=MODE\tset file mode (e.g -m 755)\n")
-		return
-
-	}
+func Mkdir(perm int, dir []string) {
 	for _, files := range dir {
 		err := os.Mkdir(files, os.FileMode(perm))
 		if err != nil && os.IsExist(err) {
@@ -136,13 +103,7 @@ func Mkdir(perm int, dir []string, help bool) {
 
 }
 
-func Rm(dir []string, help bool) {
-	if help || len(dir) < 1 {
-		fmt.Println("rm - remove files or directories")
-		fmt.Println("\tAvailable flags:")
-		fmt.Printf("\t\t-m, --mode=MODE\tset file mode (e.g -m 755)\n")
-		return
-	}
+func Rm(dir []string) {
 	for _, files := range dir {
 		err := os.Remove(files)
 		if err != nil && os.IsExist(err) {
@@ -167,13 +128,7 @@ func Cat(file string, help bool) {
 	os.Stdout.Write(data)
 }
 
-func Head(file string, help bool) {
-	if help || len(file) < 1 {
-		fmt.Println("Head - output the first part of files")
-		fmt.Println("\tAvailable flags:")
-		fmt.Printf("\t\t-m, --mode=MODE\tset file mode (e.g -m 755)\n")
-		return
-	}
+func Head(file string) {
 	f, err := os.Open(file)
 	if err != nil {
 		log.Fatal(err)
@@ -193,16 +148,7 @@ func Head(file string, help bool) {
 	}
 }
 
-func Tail(file string, help bool, bytes int) {
-	flag := Flags{
-		Name: "Tail - output the last part of files",
-		Flag: []string{"-c , --bytes=NUM", "-t, --test=00"},
-		Desc: []string{"output the last NUM bytes;", "IDK BRO"},
-	}
-	if help || len(file) < 1 {
-		fmt.Println(flag)
-		return
-	}
+func Tail(file string, bytes int) {
 
 	if bytes != 0 {
 		f, err := os.Open(file)
@@ -225,16 +171,7 @@ func Tail(file string, help bool, bytes int) {
 
 }
 
-func Cp(src string, dst string, help bool) {
-	flag := Flags{
-		Name: "Cp - copy files and directories",
-		Flag: []string{"-c , --bytes=NUM", "-t, --test=00"},
-		Desc: []string{"output the last NUM bytes;", "IDK BRO"},
-	}
-	if help || len(src) < 1 {
-		fmt.Println(flag)
-		return
-	}
+func Cp(src string, dst string) {
 
 	data, err := os.ReadFile(src)
 	if err != nil {
