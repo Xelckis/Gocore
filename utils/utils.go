@@ -3,6 +3,7 @@ package utils
 import (
 	"bufio"
 	"fmt"
+	"io"
 	"io/fs"
 	"log"
 	"os"
@@ -24,6 +25,149 @@ func columnise(w *tabwriter.Writer, opt []string) {
 			fmt.Fprintln(w, fmt.Sprintf("%s\t%s\t%s", opt[i], opt[i+1], opt[i+2]))
 		}
 	}
+}
+
+func catBytePrinter(file string) error {
+	files, err := os.Open(file)
+	if err != nil {
+		return fmt.Errorf("Error opening file: %w", err)
+
+	}
+	defer files.Close()
+
+	b := make([]byte, 1)
+
+	for {
+		n, err := files.Read(b)
+
+		if err == io.EOF {
+			break
+		}
+
+		if err != nil {
+			return fmt.Errorf("Error reading byte: %w", err)
+		}
+
+		if n > 0 {
+			fmt.Printf("%c", b[0])
+		}
+	}
+	return nil
+
+}
+
+func tailBytePrinter(f *os.File, bytesString string) error {
+	bytes, err := strconv.Atoi(strings.TrimPrefix(bytesString, "+"))
+	if err != nil {
+		return fmt.Errorf("cannot convert %s to int: %w", bytesString, err)
+	}
+	var buf []byte
+	var start int64
+
+	stat, statErr := f.Stat()
+	if statErr != nil {
+		return fmt.Errorf("cannot get file statistics: %w", statErr)
+	}
+
+	if strings.HasPrefix(bytesString, "+") {
+		buf = make([]byte, stat.Size()-int64(bytes))
+		start = int64(bytes)
+	} else {
+		buf = make([]byte, bytes)
+		start = stat.Size() - int64(bytes)
+	}
+
+	_, err = f.ReadAt(buf, start)
+	if err == nil {
+		fmt.Printf("%s\n", buf)
+	}
+	return nil
+}
+
+func tailFollow(f *os.File, linesString string, bytesString string) error {
+	if bytesString != "0" {
+		tailBytePrinter(f, bytesString)
+	} else {
+		tailLinePrinter(f, linesString)
+	}
+
+	stat, statErr := f.Stat()
+	if statErr != nil {
+		return fmt.Errorf("cannot get file statistics: %w", statErr)
+
+	}
+
+	oldSize := stat.Size()
+
+	for {
+		time.Sleep(500 * time.Millisecond)
+
+		stat, statErr := f.Stat()
+		if statErr != nil {
+			return fmt.Errorf("cannot get file statistics: %w", statErr)
+
+		}
+
+		newSize := stat.Size()
+
+		if newSize > oldSize {
+			f.Seek(oldSize, io.SeekStart)
+
+			if _, err := io.Copy(os.Stdout, f); err != nil {
+				return fmt.Errorf("cannot print new bytes: %w", err)
+			}
+
+			oldSize = newSize
+		} else if newSize < oldSize {
+			oldSize = newSize
+		}
+	}
+
+}
+
+func tailLinePrinter(f *os.File, linesString string) error {
+	lines, err := strconv.Atoi(strings.TrimPrefix(linesString, "+"))
+	if err != nil {
+		return fmt.Errorf("cannot convert %s to int: %w", linesString, err)
+	}
+
+	scanner := bufio.NewScanner(f)
+
+	if strings.HasPrefix(linesString, "+") {
+		for i := 0; scanner.Scan(); i++ {
+			if i >= lines-1 {
+				println(scanner.Text())
+			}
+		}
+	} else {
+		var currentIndex = 0
+		var itemsAdded = 0
+
+		line := make([]string, lines)
+
+		for scanner.Scan() {
+			line[currentIndex] = scanner.Text()
+			currentIndex = (currentIndex + 1) % lines
+			itemsAdded++
+		}
+
+		if err := scanner.Err(); err != nil {
+			return fmt.Errorf("error while scanning file: %w", err)
+		}
+		start := 0
+		count := lines
+		if itemsAdded < lines {
+			count = itemsAdded
+		} else {
+			start = currentIndex
+		}
+
+		for i := range count {
+			readIndex := (start + i) % lines
+			fmt.Println(line[readIndex])
+		}
+	}
+	return nil
 }
 
 // append indicator (one of /*@|) to entries
@@ -114,61 +258,67 @@ func Rm(dir []string) {
 	}
 }
 
-func Cat(file string, help bool) {
-	if help || len(file) < 1 {
-		fmt.Println("cat - print on the standard output")
-		fmt.Println("\tAvailable flags:")
-		fmt.Printf("\t\t-m, --mode=MODE\tset file mode (e.g -m 755)\n")
-		return
+func Cat(byte bool, files ...string) error {
+
+	for _, file := range files {
+		if byte {
+			catBytePrinter(file)
+			return nil
+		}
+
+		data, err := os.ReadFile(file)
+		if err != nil {
+			return fmt.Errorf("cannot read the file %s: %w", file, err)
+		}
+		os.Stdout.Write(data)
 	}
-	data, err := os.ReadFile(file)
-	if err != nil {
-		log.Fatal(err)
-	}
-	os.Stdout.Write(data)
+	return nil
 }
 
-func Head(file string) {
-	f, err := os.Open(file)
-	if err != nil {
-		log.Fatal(err)
-	}
-	defer f.Close()
-
-	scanner := bufio.NewScanner(f)
-	lines := 0
-
-	for scanner.Scan() && lines < 10 {
-		fmt.Println(scanner.Text())
-		lines++
-	}
-
-	if err := scanner.Err(); err != nil {
-		fmt.Fprintln(os.Stderr, "reading standard input:", err)
-	}
-}
-
-func Tail(file string, bytes int) {
-
-	if bytes != 0 {
+func Head(lines int, files ...string) error {
+	for _, file := range files {
 		f, err := os.Open(file)
 		if err != nil {
-			panic(err)
+			return fmt.Errorf("cannot open the file %s: %w", file, err)
 		}
 		defer f.Close()
 
-		buf := make([]byte, bytes)
-		stat, statErr := f.Stat()
-		if statErr != nil {
-			panic(statErr)
+		scanner := bufio.NewScanner(f)
+		line := 0
+
+		if len(files) > 1 {
+			fmt.Printf("\n\n==> %s <==\n\n", file)
 		}
-		start := stat.Size() - int64(bytes)
-		_, err = f.ReadAt(buf, start)
-		if err == nil {
-			fmt.Printf("%s\n", buf)
+		for scanner.Scan() && line < lines {
+			fmt.Println(scanner.Text())
+			line++
+		}
+
+		if err := scanner.Err(); err != nil {
+			return fmt.Errorf("reading standard input: %w", err)
 		}
 	}
 
+	return nil
+}
+
+func Tail(file string, bytesString string, linesString string, follow bool) error {
+
+	f, err := os.Open(file)
+	if err != nil {
+		return fmt.Errorf("cannot open the file %s: %w", file, err)
+
+	}
+	defer f.Close()
+	if follow {
+		tailFollow(f, linesString, bytesString)
+	} else if bytesString != "0" {
+		tailBytePrinter(f, bytesString)
+	} else {
+		tailLinePrinter(f, linesString)
+	}
+
+	return nil
 }
 
 func Cp(src string, dst string) {

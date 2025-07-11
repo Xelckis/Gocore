@@ -1,9 +1,11 @@
 package main
 
 import (
-	flag "github.com/spf13/pflag"
+	"fmt"
 	"gocore/utils"
 	"os"
+
+	flag "github.com/spf13/pflag"
 )
 
 func main() {
@@ -29,11 +31,29 @@ func main() {
 		catCmd := flag.NewFlagSet("cat", flag.ExitOnError)
 		bytesFlag := catCmd.BoolP("bytes", "u", false, "Write bytes from the input file to the standard output without delay as each is read.")
 		catCmd.Parse(os.Args[2:])
-		utils.Cat(catCmd.Arg(0), *bytesFlag)
+		err := utils.Cat(*bytesFlag, catCmd.Args()...)
+		if err != nil {
+			fmt.Println(err)
+		}
 	case "head":
-		utils.Head(flag.Arg(1))
+		headCmd := flag.NewFlagSet("head", flag.ExitOnError)
+		linesFlag := headCmd.IntP("lines", "n", 10, "The first number lines of each input file")
+		headCmd.Parse(os.Args[2:])
+		err := utils.Head(*linesFlag, headCmd.Args()...)
+		if err != nil {
+			fmt.Println(err)
+		}
 	case "tail":
-		utils.Tail(flag.Arg(1), 0)
+		tailCmd := flag.NewFlagSet("tail", flag.ExitOnError)
+		bytesFlag := tailCmd.StringP("bytes", "c", "0", "output the last NUM bytes; or use -c +NUM to output starting with byte NUM of each file")
+		linesFlag := tailCmd.StringP("lines", "n", "10", "output the last NUM lines, instead of the last 10; or use -n +NUM to skip NUM-1 lines at the start")
+		followFlag := tailCmd.BoolP("follow", "f", false, "output appended data as the file grows;")
+		tailCmd.Parse(os.Args[2:])
+
+		err := utils.Tail(tailCmd.Arg(0), *bytesFlag, *linesFlag, *followFlag)
+		if err != nil {
+			fmt.Println(err)
+		}
 	case "cp":
 		utils.Cp(flag.Arg(1), flag.Arg(2))
 	case "cal":
