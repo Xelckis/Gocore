@@ -22,11 +22,23 @@ func main() {
 	case "mkdir":
 		mkdirCmd := flag.NewFlagSet("mkdir", flag.ExitOnError)
 		permFlag := mkdirCmd.IntP("mode", "m", 0755, "set file mode (Default: 0755)")
+		parentsFlag := mkdirCmd.BoolP("parents", "p", false, "Create any missing intermediate pathname components.")
 		mkdirCmd.Parse(os.Args[2:])
-		utils.Mkdir(*permFlag, mkdirCmd.Args())
+		err := utils.Mkdir(*permFlag, *parentsFlag, mkdirCmd.Args())
+		if err != nil {
+			fmt.Println(err)
+		}
+
 	case "rm":
-		args := flag.Args()
-		utils.Rm(args[1:])
+		rmCmd := flag.NewFlagSet("rm", flag.ExitOnError)
+		interactiveFlag := rmCmd.BoolP("interactive", "i", false, "prompt before every removal")
+		forceFlag := rmCmd.BoolP("force", "f", false, "Do not prompt for confirmation. Do not write diagnostic messages or modify the exit status in the case of no file operands, or in the case of operands that do not exist.")
+		recursiveFlag := rmCmd.BoolP("recursive", "r", false, "Remove file hierarchies.")
+		rmCmd.Parse(os.Args[2:])
+		err := utils.Rm(*interactiveFlag, *forceFlag, *recursiveFlag, rmCmd.Args())
+		if err != nil {
+			fmt.Println(err)
+		}
 	case "cat":
 		catCmd := flag.NewFlagSet("cat", flag.ExitOnError)
 		bytesFlag := catCmd.BoolP("bytes", "u", false, "Write bytes from the input file to the standard output without delay as each is read.")

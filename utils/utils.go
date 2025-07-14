@@ -7,6 +7,7 @@ import (
 	"io/fs"
 	"log"
 	"os"
+	"path/filepath"
 	"sort"
 	"strconv"
 	"strings"
@@ -170,6 +171,83 @@ func tailLinePrinter(f *os.File, linesString string) error {
 	return nil
 }
 
+func promptFile(path string) bool {
+	var answer string
+	fmt.Printf("rm: remove '%s'? ", path)
+
+	scanner := bufio.NewScanner(os.Stdin)
+	if scanner.Scan() {
+		answer = strings.ToLower(scanner.Text())
+	}
+
+	if answer == "y" || answer == "yes" {
+		return true
+	}
+
+	fmt.Printf("arquivo '%s' não removido\n", path)
+	return false
+}
+
+func isReadOnly(path string) (bool, error) {
+	info, err := os.Stat(path)
+	if err != nil {
+		return false, err
+	}
+
+	perm := info.Mode().Perm()
+
+	isProtected := perm&0200 == 0
+
+	return isProtected, nil
+}
+
+func mkdirParents(perm int, files string) error {
+
+	dir := strings.Split(files, "/")
+	for _, file := range dir {
+		err := os.Mkdir(file, os.FileMode(perm))
+		if err != nil && os.IsExist(err) {
+			return fmt.Errorf("Directory '%s' already exists.", file)
+		}
+		err = os.Chdir(file)
+		if err != nil {
+			return fmt.Errorf("Error changing directory: %w", err)
+		}
+
+	}
+	return nil
+}
+
+func rmRecursive(dir string, interactive bool, force bool) error {
+	itens, err := os.ReadDir(dir)
+	if err != nil {
+		return fmt.Errorf("cannot read dir %s: %w", dir, err)
+	}
+
+	for _, item := range itens {
+		fullPath := filepath.Join(dir, item.Name())
+
+		if item.IsDir() {
+			err := rmRecursive(fullPath, interactive, force)
+			if err != nil {
+				return fmt.Errorf("aviso: erro no subdiretório %s: %v\n", fullPath, err)
+			}
+			os.Remove(fullPath)
+		} else {
+			readOnly, _ := isReadOnly(fullPath)
+			if (interactive || readOnly) && !force {
+				if promp := promptFile(fullPath); !promp {
+					continue
+				}
+			}
+			os.Remove(fullPath)
+		}
+	}
+
+	return nil
+
+}
+
 // append indicator (one of /*@|) to entries
 func classifyVer(dir string, options *[]string) {
 	err := os.Chdir(dir)
@@ -235,27 +313,62 @@ func Ls(dir string, allDir bool, column bool, classify bool) {
 
 }
 
-func Mkdir(perm int, dir []string) {
+func Mkdir(perm int, parents bool, dir []string) error {
 	for _, files := range dir {
 		err := os.Mkdir(files, os.FileMode(perm))
-		if err != nil && os.IsExist(err) {
-			log.Printf("Directory '%s' already exists.", files)
-		} else if err != nil && !os.IsExist(err) {
-			log.Fatal(err)
-		}
-	}
 
+		if err != nil { // Só entramos no switch se houver um erro
+			switch {
+			case os.IsExist(err):
+				return fmt.Errorf("Directory '%s' already exists.", files)
+
+			case parents && os.IsNotExist(err):
+				err := mkdirParents(perm, files)
+				if err != nil {
+					return fmt.Errorf("%w", err)
+				}
+
+			default:
+				return fmt.Errorf("%w", err)
+			}
+		}
+
+	}
+	return nil
 }
 
-func Rm(dir []string) {
+func Rm(interactive bool, force bool, recursive bool, dir []string) error {
+
 	for _, files := range dir {
-		err := os.Remove(files)
-		if err != nil && os.IsExist(err) {
-			log.Printf("Directory '%s' is not empty.", files)
-		} else if err != nil && !os.IsExist(err) {
-			log.Fatal(err)
+		if recursive {
+			err := rmRecursive(files, interactive, force)
+			if err != nil {
+				return fmt.Errorf("%w", err)
+			}
+			err = os.Remove(files)
+			if err != nil {
+				return fmt.Errorf("%w", err)
+			}
+			continue
+		}
+		readOnly, err := isReadOnly(files)
+		if err != nil {
+			return fmt.Errorf("%w", err)
+		}
+		if (interactive || readOnly) && !force {
+			if promp := promptFile(files); !promp {
+				continue
+			}
+		}
+
+		err = os.Remove(files)
+		if err != nil && os.IsExist(err) && !force {
+			return fmt.Errorf("Directory '%s' is not empty.", files)
+		} else if err != nil && !os.IsExist(err) && !force {
+			return fmt.Errorf("Not posible to remove: %w", err)
 		}
 	}
+	return nil
 }
 
 func Cat(byte bool, files ...string) error {
@@ -310,11 +423,12 @@ func Tail(file string, bytesString string, linesString string, follow bool) erro
 
 	}
 	defer f.Close()
-	if follow {
+	switch {
+	case follow:
 		tailFollow(f, linesString, bytesString)
-	} else if bytesString != "0" {
+	case bytesString != "0":
 		tailBytePrinter(f, bytesString)
-	} else {
+	default:
 		tailLinePrinter(f, linesString)
 	}
 
