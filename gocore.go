@@ -70,6 +70,27 @@ func main() {
 		utils.Cp(flag.Arg(1), flag.Arg(2))
 	case "cal":
 		utils.Cal(flag.Arg(1), flag.Arg(2))
+	case "cmp":
+		cmpCmd := flag.NewFlagSet("cmp", flag.ExitOnError)
+		verboseFlag := cmpCmd.BoolP("verbose", "l", false, "output byte numbers and differing byte values")
+		quietFlag := cmpCmd.BoolP("quiet", "s", false, "suppress all normal output")
+		cmpCmd.Parse(os.Args[2:])
+		_, _, err := utils.Cmp(cmpCmd.Arg(0), cmpCmd.Arg(1), *verboseFlag, *quietFlag)
+		if err != nil {
+			fmt.Println(err)
+		}
+	case "mv":
+		mvCmd := flag.NewFlagSet("mv", flag.ExitOnError)
+		interactiveFlag := mvCmd.BoolP("interactive", "i", false, "prompt before overwrite")
+		forceFlag := mvCmd.BoolP("force", "f", false, "do not prompt before overwriting")
+		mvCmd.Parse(os.Args[2:])
+		utils.Mv(mvCmd.Args(), *interactiveFlag, *forceFlag)
+	case "tee":
+		teeCmd := flag.NewFlagSet("tee", flag.ExitOnError)
+		appendFlag := teeCmd.BoolP("append", "a", false, "append to the given FILEs, do not overwrite")
+		ignoreInterruptsFlag := teeCmd.BoolP("ignore-interrupts", "i", false, "ignore interrupt signals")
+		teeCmd.Parse(os.Args[2:])
+		utils.Tee(os.Stdin, teeCmd.Args(), *appendFlag, *ignoreInterruptsFlag)
 	}
 
 }

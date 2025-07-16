@@ -2,11 +2,13 @@ package utils
 
 import (
 	"bufio"
+	"bytes"
 	"fmt"
 	"io"
 	"io/fs"
 	"log"
 	"os"
+	"os/signal"
 	"path/filepath"
 	"sort"
 	"strconv"
@@ -267,8 +269,34 @@ func classifyVer(dir string, options *[]string) {
 			(*options)[idx] = file + "@"
 		case mode&fs.ModeNamedPipe != 0:
 			(*options)[idx] = file + "|"
+		case mode&0111 != 0:
+			(*options)[idx] = file + "*"
+
 		}
 	}
+}
+
+func fileExists(filePath string) bool {
+	_, err := os.Stat(filePath)
+	if err == nil {
+		return true
+	}
+	return false
+}
+
+func mvPrompt(file string) bool {
+	var answer string
+	fmt.Printf("mv: Overwrite '%s'? ", file)
+
+	scanner := bufio.NewScanner(os.Stdin)
+	if scanner.Scan() {
+		answer = strings.ToLower(scanner.Text())
+	}
+
+	if !(answer == "y") && !(answer == "yes") {
+		return false
+	}
+	return true
 }
 
 func Ls(dir string, allDir bool, column bool, classify bool) {
@@ -486,4 +514,164 @@ func Cal(month string, year string) {
 
 	w.Flush()
 
+}
+
+func Cmp(file1 string, file2 string, verbose bool, quiet bool) (bool, int, error) {
+
+	f1, err := os.Open(file1)
+	if err != nil {
+
+		return false, 2, fmt.Errorf("Error opening file: %w", err)
+
+	}
+	defer f1.Close()
+
+	f2, err := os.Open(file2)
+	if err != nil {
+		return false, 2, fmt.Errorf("Error opening file: %w", err)
+	}
+	defer f2.Close()
+
+	b1 := make([]byte, 1)
+	b2 := make([]byte, 1)
+	newLine := 1
+
+	for i := 1; ; i++ {
+
+		_, err1 := f1.Read(b1)
+		_, err2 := f2.Read(b2)
+
+		if err1 != nil || err2 != nil {
+			switch {
+			case err1 == io.EOF && err2 == io.EOF:
+				return true, 0, nil
+
+			case err1 == io.EOF:
+				if !quiet {
+					fmt.Printf("cmp: EOF on %s after byte %d\n", file1, i)
+				}
+				return false, 1, nil
+
+			case err2 == io.EOF:
+				if !quiet {
+					fmt.Printf("cmp: EOF on %s after byte %d\n", file2, i)
+				}
+				return false, 1, nil
+
+			case err1 != nil:
+				return false, 2, fmt.Errorf("error reading %s: %w\n", file1, err1)
+
+			case err2 != nil:
+				return false, 2, fmt.Errorf("error reading %s: %w", file2, err2)
+			}
+		}
+
+		if !bytes.Equal(b1, b2) {
+			if !verbose {
+				if !quiet {
+					fmt.Printf("%s %s differ: byte %d line %d\n", file1, file2, i, newLine)
+				}
+				return false, 1, nil
+			}
+			fmt.Printf("%d %o %o\n", i, b1, b2)
+		}
+
+		if bytes.Equal(b1, []byte{'\n'}) && !verbose {
+			newLine++
+		}
+
+	}
+
+}
+
+func Mv(files []string, interactive bool, force bool) error {
+	if len(files) == 2 {
+		info, err := os.Stat(files[1])
+		if err != nil {
+			if os.IsNotExist(err) {
+				err := os.Rename(files[0], files[1])
+				if err != nil {
+					return fmt.Errorf("Error renaming file: %v", err)
+				}
+				return nil
+			} else {
+				return fmt.Errorf("Error: %v\n", err)
+			}
+		} else {
+			if info.IsDir() {
+				targetPath := filepath.Join(files[1], files[0])
+				err := os.Rename(files[0], targetPath)
+				if err != nil {
+					return fmt.Errorf("Error moving file: %v", err)
+				}
+				return nil
+			}
+		}
+		if interactive && !force {
+			if asw := mvPrompt(files[1]); !asw {
+				return nil
+			}
+		}
+		err = os.Rename(files[0], files[1])
+		if err != nil {
+			return fmt.Errorf("Error renaming file: %v", err)
+		}
+		return nil
+	}
+
+	for i := range len(files) - 1 {
+		info, err := os.Stat(files[len(files)-1])
+		if err != nil {
+			if os.IsNotExist(err) || !info.IsDir() {
+				return fmt.Errorf("Dir does not exist: %v", err)
+			} else {
+				return fmt.Errorf("Error: %v\n", err)
+			}
+		}
+
+		if interactive && fileExists(filepath.Join(files[len(files)-1], files[i])) && !force {
+			if asw := mvPrompt(files[i]); !asw {
+				continue
+			}
+
+		}
+
+		err = os.Rename(files[i], filepath.Join(files[len(files)-1], files[i]))
+		if err != nil {
+			return fmt.Errorf("Error moving file: %v", err)
+		}
+	}
+
+	return nil
+}
+
+func Tee(source io.Reader, files []string, appendFlag bool, ignoreInterrupts bool) error {
+	destinations := []io.Writer{os.Stdout}
+
+	if ignoreInterrupts {
+		signal.Ignore(os.Interrupt)
+	}
+	for _, file := range files {
+		var f *os.File
+		var err error
+		if appendFlag {
+			f, err = os.OpenFile(file, os.O_APPEND|os.O_CREATE|os.O_WRONLY, 0644)
+		} else {
+			f, err = os.OpenFile(file, os.O_WRONLY|os.O_CREATE|os.O_TRUNC, 0644)
+		}
+		defer f.Close()
+
+		if err != nil {
+			return fmt.Errorf("Error opening file: %v", err)
+		}
+
+		destinations = append(destinations, f)
+
+	}
+	multiWriter := io.MultiWriter(destinations...)
+
+	if _, err := io.Copy(multiWriter, source); err != nil {
+		return fmt.Errorf("Error copying data to files: %v", err)
+	}
+	return nil
 }
