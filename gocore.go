@@ -11,6 +11,7 @@ import (
 func main() {
 
 	switch os.Args[1] {
+
 	case "ls":
 		lsCmd := flag.NewFlagSet("ls", flag.ExitOnError)
 		allDir := lsCmd.BoolP("almost-all", "A", false, "Lists all entries, including hidden files (those starting with a .), but excludes the current directory (.) and the parent directory (..).")
@@ -19,6 +20,7 @@ func main() {
 
 		lsCmd.Parse(os.Args[2:])
 		utils.Ls(lsCmd.Arg(0), *allDir, *columnFlag, *classifyFlag)
+
 	case "mkdir":
 		mkdirCmd := flag.NewFlagSet("mkdir", flag.ExitOnError)
 		permFlag := mkdirCmd.IntP("mode", "m", 0755, "set file mode (Default: 0755)")
@@ -39,6 +41,7 @@ func main() {
 		if err != nil {
 			fmt.Println(err)
 		}
+
 	case "cat":
 		catCmd := flag.NewFlagSet("cat", flag.ExitOnError)
 		bytesFlag := catCmd.BoolP("bytes", "u", false, "Write bytes from the input file to the standard output without delay as each is read.")
@@ -47,6 +50,7 @@ func main() {
 		if err != nil {
 			fmt.Println(err)
 		}
+
 	case "head":
 		headCmd := flag.NewFlagSet("head", flag.ExitOnError)
 		linesFlag := headCmd.IntP("lines", "n", 10, "The first number lines of each input file")
@@ -55,6 +59,7 @@ func main() {
 		if err != nil {
 			fmt.Println(err)
 		}
+
 	case "tail":
 		tailCmd := flag.NewFlagSet("tail", flag.ExitOnError)
 		bytesFlag := tailCmd.StringP("bytes", "c", "0", "output the last NUM bytes; or use -c +NUM to output starting with byte NUM of each file")
@@ -66,10 +71,13 @@ func main() {
 		if err != nil {
 			fmt.Println(err)
 		}
+
 	case "cp":
 		utils.Cp(flag.Arg(1), flag.Arg(2))
+
 	case "cal":
 		utils.Cal(flag.Arg(1), flag.Arg(2))
+
 	case "cmp":
 		cmpCmd := flag.NewFlagSet("cmp", flag.ExitOnError)
 		verboseFlag := cmpCmd.BoolP("verbose", "l", false, "output byte numbers and differing byte values")
@@ -79,18 +87,36 @@ func main() {
 		if err != nil {
 			fmt.Println(err)
 		}
+
 	case "mv":
 		mvCmd := flag.NewFlagSet("mv", flag.ExitOnError)
 		interactiveFlag := mvCmd.BoolP("interactive", "i", false, "prompt before overwrite")
 		forceFlag := mvCmd.BoolP("force", "f", false, "do not prompt before overwriting")
 		mvCmd.Parse(os.Args[2:])
 		utils.Mv(mvCmd.Args(), *interactiveFlag, *forceFlag)
+
 	case "tee":
 		teeCmd := flag.NewFlagSet("tee", flag.ExitOnError)
 		appendFlag := teeCmd.BoolP("append", "a", false, "append to the given FILEs, do not overwrite")
 		ignoreInterruptsFlag := teeCmd.BoolP("ignore-interrupts", "i", false, "ignore interrupt signals")
 		teeCmd.Parse(os.Args[2:])
 		utils.Tee(os.Stdin, teeCmd.Args(), *appendFlag, *ignoreInterruptsFlag)
+
+	case "ln":
+		lnCmd := flag.NewFlagSet("ln", flag.ExitOnError)
+		symlinkFlag := lnCmd.BoolP("symbolic", "s", false, "make symbolic links instead of hard links")
+		forceFlag := lnCmd.BoolP("force", "f", false, "remove existing destination files")
+		logicalFlag := lnCmd.BoolP("logical", "L", false, "dereference TARGETs that are symbolic links")
+		physicalFlag := lnCmd.BoolP("physical", "P", false, "make hard links directly to symbolic links")
+		lnCmd.Parse(os.Args[2:])
+		utils.Ln(lnCmd.Args(), *symlinkFlag, *forceFlag, *logicalFlag, *physicalFlag)
+	case "comm":
+		commCmd := flag.NewFlagSet("comm", flag.ExitOnError)
+		com1Flag := commCmd.BoolP("1", "1", false, "suppress column 1 (lines unique to FILE1)")
+		com2Flag := commCmd.BoolP("2", "2", false, "suppress column 2 (lines unique to FILE2)")
+		com3Flag := commCmd.BoolP("3", "3", false, "suppress column 3 (lines that appear in both files)")
+		commCmd.Parse(os.Args[2:])
+		utils.Comm(commCmd.Arg(0), commCmd.Arg(1), *com1Flag, *com2Flag, *com3Flag)
 	}
 
 }

@@ -299,6 +299,28 @@ func mvPrompt(file string) bool {
 	return true
 }
 
+func lnForce(file string) error {
+	if exist := fileExists(file); exist {
+		err := os.Remove(file)
+		if err != nil {
+			return err
+		}
+	}
+
+	return nil
+}
+
+func isDirectory(path string) (bool, error) {
+	fileInfo, err := os.Stat(path)
+	if err != nil {
+		if os.IsNotExist(err) {
+			return false, fmt.Errorf("path does not exist: %s", path)
+		}
+		return false, err
+	}
+	return fileInfo.IsDir(), nil
+}
+
 func Ls(dir string, allDir bool, column bool, classify bool) {
 	// if no dir is specified use the current dir
 	if dir == "" {
@@ -673,5 +695,117 @@ func Tee(source io.Reader, files []string, appendFlag bool, ignoreInterrupts boo
 	if _, err := io.Copy(multiWriter, source); err != nil {
 		return fmt.Errorf("Error copying data to files: %v", err)
 	}
+	return nil
+}
+
+func Ln(files []string, symbolic bool, force bool, logical bool, physical bool) {
+	var err error
+	isDir, _ := isDirectory(files[len(files)-1])
+
+	if force {
+		if isDir {
+			for i := range len(files) - 1 {
+				lnForce(filepath.Join(files[len(files)-1], files[i]))
+			}
+		} else {
+			lnForce(files[1])
+		}
+	}
+
+	for i := range len(files) - 1 {
+
+		if symbolic {
+			if isDir {
+				err = os.Symlink(files[i], filepath.Join(files[len(files)-1], files[i]))
+			} else {
+				err = os.Symlink(files[0], files[1])
+			}
+		} else if logical {
+			if isDir {
+				finalFile, errEval := filepath.EvalSymlinks(files[i])
+				if errEval != nil {
+					log.Fatal(errEval)
+				}
+				err = os.Link(finalFile, filepath.Join(files[len(files)-1], files[i]))
+			} else {
+				finalFile, errEval := filepath.EvalSymlinks(files[0])
+				if errEval != nil {
+					log.Fatal(errEval)
+				}
+				err = os.Link(finalFile, files[1])
+			}
+		} else if physical {
+			if isDir {
+				err = os.Link(files[i], filepath.Join(files[len(files)-1], files[i]))
+			} else {
+				err = os.Link(files[0], files[1])
+			}
+		} else {
+			if isDir {
+				err = os.Link(files[i], filepath.Join(files[len(files)-1], files[i]))
+			} else {
+				err = os.Link(files[0], files[1])
+			}
+		}
+
+		if err != nil {
+			fmt.Printf("Erro link: %v\n", err)
+		}
+
+	}
+
+}
+
+func Comm(file1 string, file2 string, noCol1 bool, noCol2 bool, noCol3 bool) error {
+	f1, err := os.Open(file1)
+	if err != nil {
+		return fmt.Errorf("Error opening file %s: %v", file1, err)
+	}
+
+	f2, err := os.Open(file2)
+	if err != nil {
+		return fmt.Errorf("Error opening file %s: %v", file2, err)
+	}
+
+	scan1 := bufio.NewScanner(f1)
+	scan2 := bufio.NewScanner(f2)
+
+	hasLine1 := scan1.Scan()
+	hasLine2 := scan2.Scan()
+
+	w := tabwriter.NewWriter(os.Stdout, 0, 0, 5, ' ', 0)
+	fmt.Fprintf(w, "%s\t%s\tBoth\n", file1, file2)
+	for hasLine1 || hasLine2 {
+		line1, line2 := scan1.Text(), scan2.Text()
+		switch {
+		case !hasLine2 || (hasLine1 && line1 < line2):
+			if !noCol1 {
+				fmt.Fprintf(w, "%s\t\n", line1)
+			}
+			hasLine1 = scan1.Scan()
+		case !hasLine1 || (hasLine2 && line2 < line1):
+			if !noCol2 {
+				fmt.Fprintf(w, "\t%s\t\n", line2)
+			}
+			hasLine2 = scan2.Scan()
+		case hasLine2 && hasLine1 && line1 == line2:
+			if !noCol3 {
+				fmt.Fprintf(w, "\t\t%s\t\n", line1)
+			}
+			hasLine1 = scan1.Scan()
+			hasLine2 = scan2.Scan()
+
+		}
+	}
+
+	w.Flush()
+
+	if err := scan1.Err(); err != nil {
+		return fmt.Errorf("Error scanning %s: %w", file1, err)
+	}
+	if err := scan2.Err(); err != nil {
+		return fmt.Errorf("Error scanning %s: %w", file2, err)
+	}
+
 	return nil
 }
