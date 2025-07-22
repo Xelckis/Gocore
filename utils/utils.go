@@ -9,10 +9,12 @@ import (
 	"log"
 	"os"
 	"os/signal"
+	osUser "os/user"
 	"path/filepath"
 	"sort"
 	"strconv"
 	"strings"
+	"syscall"
 	"text/tabwriter"
 	"time"
 )
@@ -807,5 +809,228 @@ func Comm(file1 string, file2 string, noCol1 bool, noCol2 bool, noCol3 bool) err
 		return fmt.Errorf("Error scanning %s: %w", file2, err)
 	}
 
+	return nil
+}
+
+func chownRecursive(physical bool, logical bool, uid int, gid int) fs.WalkDirFunc {
+	switch {
+	case physical || (!physical && !logical):
+		return func(path string, info fs.DirEntry, err error) error {
+			if err != nil {
+				log.Printf("Error accessing path %s: %v", path, err)
+				return nil
+			}
+
+			if err := os.Lchown(path, uid, gid); err != nil {
+				return fmt.Errorf("Error: Ownership cannot be changed '%s': %w", path, err)
+			}
+			return nil
+		}
+
+	case logical:
+		return func(path string, info fs.DirEntry, err error) error {
+			if err != nil {
+				log.Printf("Error accessing path %s: %v", path, err)
+				return nil
+			}
+
+			err = os.Chown(path, uid, gid)
+			if err != nil {
+				return fmt.Errorf("Error: Ownership cannot be changed '%s': %w", path, err)
+			}
+			return nil
+		}
+	}
+	return nil
+}
+
+func Chown(ug string, files []string, noDereference bool, recursive bool, physical bool, logical bool, hybrid bool) error {
+
+	userId := -1
+	groupId := -1
+
+	if num := strings.Index(ug, ":"); num != -1 {
+		userStr := ug[:num]
+		groupStr := ug[num+1:]
+
+		if userStr != "" {
+			userInfo, err := osUser.Lookup(userStr)
+			if err != nil {
+				return fmt.Errorf("Cannot find user '%s': %w", userStr, err)
+			}
+
+			uid, err := strconv.Atoi(userInfo.Uid)
+			if err != nil {
+				return fmt.Errorf("Error converting the Uid '%s' to int: %w", userInfo.Uid, err)
+			}
+			userId = uid
+		}
+
+		if groupStr != "" {
+			groupInfo, err := osUser.LookupGroup(groupStr)
+			if err != nil {
+				return fmt.Errorf("Cannot find group '%s': %w", groupStr, err)
+			}
+
+			gid, err := strconv.Atoi(groupInfo.Gid)
+			if err != nil {
+				return fmt.Errorf("Error converting Gid '%s' to int: %w", groupInfo.Gid, err)
+			}
+			groupId = gid
+		}
+
+	} else {
+		userInfo, err := osUser.Lookup(ug)
+		if err != nil {
+			return fmt.Errorf("Cannot find user '%s': %w", ug, err)
+		}
+		uid, err := strconv.Atoi(userInfo.Uid)
+		if err != nil {
+			return fmt.Errorf("Error converting Uid '%s' to int: %w", userInfo.Uid, err)
+		}
+		userId = uid
+	}
+
+	for _, file := range files {
+		if recursive {
+			if hybrid {
+				fileInfo, err := os.Lstat(file)
+				if err != nil {
+					return fmt.Errorf("Error: %w", err)
+				}
+
+				if fileInfo.Mode()&os.ModeSymlink == os.ModeSymlink {
+					file, err = filepath.EvalSymlinks(file)
+					if err != nil {
+						return fmt.Errorf("Error solving link: %w", err)
+					}
+				}
+				walkFunc := chownRecursive(true, false, userId, groupId)
+				filepath.WalkDir(file, walkFunc)
+
+			} else {
+				walkFunc := chownRecursive(physical, logical, userId, groupId)
+				filepath.WalkDir(file, walkFunc)
+			}
+		} else if noDereference {
+			err := os.Lchown(file, userId, groupId)
+			if err != nil {
+				return fmt.Errorf("Error changing %s ownership: %w", file, err)
+			}
+		} else {
+			err := os.Chown(file, userId, groupId)
+			if err != nil {
+				return fmt.Errorf("Error changing %s ownership: %w", file, err)
+			}
+		}
+	}
+	return nil
+}
+
+func getTouchTLayout(timeString string) (string, error) {
+	hasDot := strings.Contains(timeString, ".")
+	length := len(timeString)
+
+	switch {
+	case length == 8 && !hasDot:
+		return "01021504", nil
+
+	case length == 10 && !hasDot:
+		return "0601021504", nil
+
+	case length == 11 && hasDot:
+		return "01021504.05", nil
+
+	case length == 12 && !hasDot:
+		return "200601021504", nil
+
+	case length == 13 && hasDot:
+		return "0601021504.05", nil
+
+	case length == 15 && hasDot:
+		return "200601021504.05", nil
+
+	default:
+		return "", fmt.Errorf("Timestamp '%s' is invalid", timeString)
+	}
+}
+
+func Touch(files []string, noCreate bool, accessOnly bool, modifyOnly bool, date string, timestamp string, reference bool) error {
+	var err error
+	aTime := time.Now()
+	mTime := time.Now()
+
+	if timestamp != "" {
+
+		format, err := getTouchTLayout(timestamp)
+		if err != nil {
+			return err
+		}
+
+		parsedTime, err := time.ParseInLocation(format, timestamp, time.Local)
+		if err != nil {
+			return fmt.Errorf("Error on parsing the timestamp '%s' with format '%s': %w", timestamp, format, err)
+		}
+
+		if len(timestamp) == 8 || len(timestamp) == 11 {
+			parsedTime = parsedTime.AddDate(time.Now().Year(), 0, 0)
+		}
+
+		if len(timestamp) == 10 || len(timestamp) == 13 {
+			year := parsedTime.Year()
+			if year >= 69 && year <= 99 {
+				parsedTime = parsedTime.AddDate(1900, 0, 0)
+			} else if year >= 0 && year <= 68 {
+				parsedTime = parsedTime.AddDate(2000, 0, 0)
+			}
+		}
+
+		aTime, mTime = parsedTime, parsedTime
+
+	} else if date != "" {
+		aTime, err = time.Parse("2006-01-02T15:04:05", date)
+		if err != nil {
+			return fmt.Errorf("Error with time parse: %w", err)
+		}
+		mTime, err = time.Parse("2006-01-02T15:04:05", date)
+		if err != nil {
+			return fmt.Errorf("Error with time parse: %w", err)
+		}
+	} else if reference {
+		refFile := files[len(files)-1]
+		files = files[:len(files)-1]
+		fStat, err := os.Stat(refFile)
+		if err != nil {
+			return fmt.Errorf("Cannot get '%s' information: %w", refFile, err)
+		}
+
+		mTime = fStat.ModTime()
+		if stat, ok := fStat.Sys().(*syscall.Stat_t); ok {
+			aTime = time.Unix(stat.Atim.Sec, stat.Atim.Nsec)
+		} else {
+			aTime = mTime
+		}
+	}
+	if accessOnly {
+		mTime = time.Time{}
+	}
+	if modifyOnly {
+		aTime = time.Time{}
+	}
+
+	for _, file := range files {
+		fExist := fileExists(file)
+		if !fExist && !noCreate {
+			f, err := os.Create(file)
+			if err != nil {
+				return fmt.Errorf("Error creating file '%s': %w", file, err)
+			}
+			f.Close()
+
+		}
+		if err := os.Chtimes(file, aTime, mTime); err != nil {
+			return fmt.Errorf("Error chaging '%s' time: %w", file, err)
+		}
+	}
 	return nil
 }

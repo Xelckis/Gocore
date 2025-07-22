@@ -76,7 +76,9 @@ func main() {
 		utils.Cp(flag.Arg(1), flag.Arg(2))
 
 	case "cal":
-		utils.Cal(flag.Arg(1), flag.Arg(2))
+		calCmd := flag.NewFlagSet("cal", flag.ExitOnError)
+		calCmd.Parse(os.Args[2:])
+		utils.Cal(calCmd.Arg(0), calCmd.Arg(1))
 
 	case "cmp":
 		cmpCmd := flag.NewFlagSet("cmp", flag.ExitOnError)
@@ -117,6 +119,30 @@ func main() {
 		com3Flag := commCmd.BoolP("3", "3", false, "suppress column 3 (lines that appear in both files)")
 		commCmd.Parse(os.Args[2:])
 		utils.Comm(commCmd.Arg(0), commCmd.Arg(1), *com1Flag, *com2Flag, *com3Flag)
+
+	case "chown":
+		chownCmd := flag.NewFlagSet("chown", flag.ExitOnError)
+		noDereferenceFlag := chownCmd.BoolP("no-dereference", "d", false, "affect symbolic links instead of any referenced file (useful only on systems that can change the ownership of a symlink)")
+		recursiveFlag := chownCmd.BoolP("reccursive", "R", false, "operate on files and directories recursively")
+		physicalFlag := chownCmd.BoolP("physical", "P", false, "do not traverse any symbolic links")
+		logicalFlag := chownCmd.BoolP("logical", "L", false, "traverse every symbolic link to a directory encountered")
+		hybridFlag := chownCmd.BoolP("Hybrid", "H", false, "if a command line argument is a symbolic link to a directory, traverse it")
+		chownCmd.Parse(os.Args[2:])
+		utils.Chown(chownCmd.Arg(0), chownCmd.Args()[1:], *noDereferenceFlag, *recursiveFlag, *physicalFlag, *logicalFlag, *hybridFlag)
+
+	case "touch":
+		touchCmd := flag.NewFlagSet("touch", flag.ExitOnError)
+		noCreateFlag := touchCmd.BoolP("no-create", "c", false, "do not create any files")
+		accessOnlyFlag := touchCmd.BoolP("access", "a", false, "change only the access time")
+		modifyOnlyFlag := touchCmd.BoolP("modify", "m", false, "change only the modification time")
+		dateFlag := touchCmd.StringP("date", "d", "", "parse STRING and use it instead of current time")
+		timestampFlag := touchCmd.StringP("timestamp", "t", "", "use specified time instead of current time, with a date-time format that differs from -d's")
+		referenceFlag := touchCmd.BoolP("reference", "r", false, "use this file's times instead of current time")
+		touchCmd.Parse(os.Args[2:])
+		err := utils.Touch(touchCmd.Args(), *noCreateFlag, *accessOnlyFlag, *modifyOnlyFlag, *dateFlag, *timestampFlag, *referenceFlag)
+		if err != nil {
+			fmt.Println(err)
+		}
 	}
 
 }
