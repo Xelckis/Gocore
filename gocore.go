@@ -143,6 +143,28 @@ func main() {
 		if err != nil {
 			fmt.Println(err)
 		}
+
+	case "uniq":
+		uniqCmd := flag.NewFlagSet("uniq", flag.ExitOnError)
+		counterFlag := uniqCmd.BoolP("count", "c", false, "prefix lines by the number of occurrences")
+		repeatedFlag := uniqCmd.BoolP("repeated", "d", false, "only print duplicate lines, one for each group")
+		uniqueFlag := uniqCmd.BoolP("unique", "u", false, "only print unique lines")
+		fieldsFlag := uniqCmd.UintP("skip-fields", "f", 1, "avoid comparing the first N fields")
+		charsFlag := uniqCmd.UintP("skip-chars", "s", 1, "avoid comparing the first N characters")
+		uniqCmd.Parse(os.Args[2:])
+		utils.Uniq(uniqCmd.Arg(0), uniqCmd.Arg(1), *repeatedFlag, *uniqueFlag, *counterFlag, *fieldsFlag, *charsFlag)
+
+	case "cut":
+		cutCmd := flag.NewFlagSet("cut", flag.ExitOnError)
+		charFlag := cutCmd.StringP("characters", "c", "", "select only these characters")
+		fieldFlag := cutCmd.StringP("fields", "f", "", "select only these fields;  also print any line that contains no delimiter character, unless the -s option is specified")
+		delimiterFlag := cutCmd.StringP("delimiter", "d", "", "use DELIM instead of TAB for field delimiter")
+		onlyDelimited := cutCmd.BoolP("only-delimited", "s", false, "do not print lines not containing delimiters")
+		cutCmd.Parse(os.Args[2:])
+		err := utils.Cut(cutCmd.Args(), *charFlag, *fieldFlag, *delimiterFlag, *onlyDelimited)
+		if err != nil {
+			fmt.Println(err)
+		}
 	}
 
 }

@@ -35,10 +35,9 @@ func columnise(w *tabwriter.Writer, opt []string) {
 func catBytePrinter(file string) error {
 	files, err := os.Open(file)
 	if err != nil {
-		return fmt.Errorf("Error opening file: %w", err)
+		return fmt.Errorf("Error opening file '%s': %w", file, err)
 
 	}
-	defer files.Close()
 
 	b := make([]byte, 1)
 
@@ -50,6 +49,7 @@ func catBytePrinter(file string) error {
 		}
 
 		if err != nil {
+			files.Close()
 			return fmt.Errorf("Error reading byte: %w", err)
 		}
 
@@ -57,6 +57,7 @@ func catBytePrinter(file string) error {
 			fmt.Printf("%c", b[0])
 		}
 	}
+	files.Close()
 	return nil
 
 }
@@ -391,31 +392,31 @@ func Mkdir(perm int, parents bool, dir []string) error {
 
 func Rm(interactive bool, force bool, recursive bool, dir []string) error {
 
-	for _, files := range dir {
+	for _, file := range dir {
 		if recursive {
-			err := rmRecursive(files, interactive, force)
+			err := rmRecursive(file, interactive, force)
 			if err != nil {
-				return fmt.Errorf("%w", err)
+				return fmt.Errorf("Error removing files recursively: %w", err)
 			}
-			err = os.Remove(files)
+			err = os.Remove(file)
 			if err != nil {
-				return fmt.Errorf("%w", err)
+				return fmt.Errorf("Error removing '%s': %w", file, err)
 			}
 			continue
 		}
-		readOnly, err := isReadOnly(files)
+		readOnly, err := isReadOnly(file)
 		if err != nil {
-			return fmt.Errorf("%w", err)
+			return fmt.Errorf("Error determining if '%s' is read-only: %w", file, err)
 		}
 		if (interactive || readOnly) && !force {
-			if promp := promptFile(files); !promp {
+			if promp := promptFile(file); !promp {
 				continue
 			}
 		}
 
-		err = os.Remove(files)
+		err = os.Remove(file)
 		if err != nil && os.IsExist(err) && !force {
-			return fmt.Errorf("Directory '%s' is not empty.", files)
+			return fmt.Errorf("Directory '%s' is not empty.", file)
 		} else if err != nil && !os.IsExist(err) && !force {
 			return fmt.Errorf("Not posible to remove: %w", err)
 		}
@@ -441,27 +442,32 @@ func Cat(byte bool, files ...string) error {
 }
 
 func Head(lines int, files ...string) error {
+	if lines <= 0 {
+		return fmt.Errorf("Error: number of lines is 0 or negative")
+	}
 	for _, file := range files {
 		f, err := os.Open(file)
 		if err != nil {
-			return fmt.Errorf("cannot open the file %s: %w", file, err)
+			return fmt.Errorf("Error opening file '%s': %w", file, err)
 		}
-		defer f.Close()
 
 		scanner := bufio.NewScanner(f)
-		line := 0
+		lineCount := 0
 
 		if len(files) > 1 {
 			fmt.Printf("\n\n==> %s <==\n\n", file)
 		}
-		for scanner.Scan() && line < lines {
+		for scanner.Scan() && lineCount < lines {
 			fmt.Println(scanner.Text())
-			line++
+			lineCount++
 		}
 
 		if err := scanner.Err(); err != nil {
+			f.Close()
 			return fmt.Errorf("reading standard input: %w", err)
 		}
+		f.Close()
+
 	}
 
 	return nil
@@ -471,7 +477,7 @@ func Tail(file string, bytesString string, linesString string, follow bool) erro
 
 	f, err := os.Open(file)
 	if err != nil {
-		return fmt.Errorf("cannot open the file %s: %w", file, err)
+		return fmt.Errorf("Error opening file '%s': %w", file, err)
 
 	}
 	defer f.Close()
@@ -545,14 +551,14 @@ func Cmp(file1 string, file2 string, verbose bool, quiet bool) (bool, int, error
 	f1, err := os.Open(file1)
 	if err != nil {
 
-		return false, 2, fmt.Errorf("Error opening file: %w", err)
+		return false, 2, fmt.Errorf("Error opening file '%s': %w", file1, err)
 
 	}
 	defer f1.Close()
 
 	f2, err := os.Open(file2)
 	if err != nil {
-		return false, 2, fmt.Errorf("Error opening file: %w", err)
+		return false, 2, fmt.Errorf("Error opening file '%s': %w", file2, err)
 	}
 	defer f2.Close()
 
@@ -686,7 +692,7 @@ func Tee(source io.Reader, files []string, appendFlag bool, ignoreInterrupts boo
 		defer f.Close()
 
 		if err != nil {
-			return fmt.Errorf("Error opening file: %v", err)
+			return fmt.Errorf("Error opening file '%s': %w", file, err)
 		}
 
 		destinations = append(destinations, f)
@@ -761,12 +767,12 @@ func Ln(files []string, symbolic bool, force bool, logical bool, physical bool) 
 func Comm(file1 string, file2 string, noCol1 bool, noCol2 bool, noCol3 bool) error {
 	f1, err := os.Open(file1)
 	if err != nil {
-		return fmt.Errorf("Error opening file %s: %v", file1, err)
+		return fmt.Errorf("Error opening file '%s': %w", file1, err)
 	}
 
 	f2, err := os.Open(file2)
 	if err != nil {
-		return fmt.Errorf("Error opening file %s: %v", file2, err)
+		return fmt.Errorf("Error opening file '%s': %w", file2, err)
 	}
 
 	scan1 := bufio.NewScanner(f1)
@@ -1030,6 +1036,198 @@ func Touch(files []string, noCreate bool, accessOnly bool, modifyOnly bool, date
 		}
 		if err := os.Chtimes(file, aTime, mTime); err != nil {
 			return fmt.Errorf("Error chaging '%s' time: %w", file, err)
+		}
+	}
+	return nil
+}
+
+func Uniq(input string, output string, duplicated bool, unique bool, counter bool, fields uint, chars uint) error {
+	lineCounts := make(map[string]int)
+	var outputFileBool bool = false
+	var textBytes []byte
+	f, err := os.Open(input)
+	if err != nil {
+		return fmt.Errorf("Error opening file '%s': %w", input, err)
+	}
+	defer f.Close()
+
+	scanner := bufio.NewScanner(f)
+	var lineText string
+	for scanner.Scan() {
+		if fields > 0 {
+			textField := strings.Fields(scanner.Text())
+			lineText = strings.Join(textField[fields:], " ")
+		} else if chars > 0 {
+			lineText = scanner.Text()[chars:]
+		} else {
+			lineText = scanner.Text()
+		}
+		lineCounts[lineText]++
+	}
+
+	if output != "" {
+		outputFileBool = true
+	}
+
+	for line, count := range lineCounts {
+		if counter {
+			if outputFileBool {
+				textBytes = fmt.Appendf(textBytes, "%d %s\n", count, line)
+			} else {
+				fmt.Printf("%d %s\n", count, line)
+			}
+		} else if count > 1 && duplicated {
+			if outputFileBool {
+				textBytes = fmt.Appendln(textBytes, line)
+			} else {
+				fmt.Println(line)
+			}
+		} else if count == 1 && unique {
+			if outputFileBool {
+				textBytes = fmt.Appendln(textBytes, line)
+			} else {
+				fmt.Println(line)
+			}
+		} else if !counter && !duplicated && !unique {
+			if outputFileBool {
+				textBytes = fmt.Appendln(textBytes, line)
+			} else {
+				fmt.Println(line)
+			}
+		}
+	}
+
+	if outputFileBool {
+		err := os.WriteFile(output, textBytes, 0666)
+		if err != nil {
+			log.Fatal(err)
+		}
+	}
+
+	return nil
+}
+
+func cutList(list string) (nums [][2]int, err error) {
+	fields := strings.Split(list, ",")
+	for _, f := range fields {
+		f = strings.TrimSpace(f)
+		if f == "" {
+			continue
+		}
+		if strings.HasPrefix(f, "-") {
+			end, err := strconv.Atoi(strings.TrimPrefix(f, "-"))
+			if err != nil {
+				return nil, fmt.Errorf("intervalo inválido: %v", f)
+			}
+			nums = append(nums, [2]int{0, end})
+		} else if strings.HasSuffix(f, "-") {
+			start, err := strconv.Atoi(strings.TrimSuffix(f, "-"))
+			if err != nil {
+				return nil, fmt.Errorf("intervalo inválido: %v", f)
+			}
+			nums = append(nums, [2]int{start - 1, -1})
+		} else if strings.Contains(f, "-") {
+			parts := strings.SplitN(f, "-", 2)
+			start, err1 := strconv.Atoi(parts[0])
+			end, err2 := strconv.Atoi(parts[1])
+			if err1 != nil || err2 != nil {
+				return nil, fmt.Errorf("intervalo inválido: %v", f)
+			}
+			nums = append(nums, [2]int{start - 1, end})
+		} else {
+			pos, err := strconv.Atoi(f)
+			if err != nil {
+				return nil, fmt.Errorf("número inválido: %v", f)
+			}
+			nums = append(nums, [2]int{pos - 1, pos})
+		}
+	}
+	return nums, nil
+}
+
+func Cut(files []string, characters, fields, delimiter string, separatedOnly bool) error {
+	var listSlice [][2]int
+	var err error
+	var useChar, useField bool
+
+	if characters != "" {
+		listSlice, err = cutList(characters)
+		if err != nil {
+			return err
+		}
+		useChar = true
+	} else if fields != "" {
+		listSlice, err = cutList(fields)
+		if err != nil {
+			return err
+		}
+		useField = true
+	}
+
+	if delimiter == "" {
+		delimiter = "\t"
+	}
+
+	for _, file := range files {
+		f, err := os.Open(file)
+		if err != nil {
+			return err
+		}
+		defer f.Close()
+
+		scanner := bufio.NewScanner(f)
+		for scanner.Scan() {
+			line := scanner.Text()
+			if useChar {
+				for _, rng := range listSlice {
+					start := rng[0]
+					end := rng[1]
+					if start < 0 {
+						start = 0
+					}
+					if end == -1 || end > len(line) {
+						end = len(line)
+					}
+					if start >= len(line) {
+						continue
+					}
+					if end > len(line) {
+						end = len(line)
+					}
+					if start < end {
+						fmt.Print(line[start:end])
+					}
+				}
+				fmt.Println()
+			} else if useField {
+				if separatedOnly && !strings.Contains(line, delimiter) {
+					continue
+				}
+				fields := strings.Split(line, delimiter)
+				var output []string
+				for _, rng := range listSlice {
+					start := rng[0]
+					end := rng[1]
+					if start < 0 {
+						start = 0
+					}
+					if end == -1 || end > len(fields) {
+						end = len(fields)
+					}
+					if start >= len(fields) {
+						continue
+					}
+					if end > len(fields) {
+						end = len(fields)
+					}
+					if start < end {
+						output = append(output, fields[start:end]...)
+					}
+				}
+				fmt.Println(strings.Join(output, delimiter))
+			} else {
+				fmt.Println(line)
+			}
 		}
 	}
 	return nil
