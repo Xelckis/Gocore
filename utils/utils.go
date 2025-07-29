@@ -3,11 +3,13 @@ package utils
 import (
 	"bufio"
 	"bytes"
+	"errors"
 	"fmt"
 	"io"
 	"io/fs"
 	"log"
 	"os"
+	"os/exec"
 	"os/signal"
 	osUser "os/user"
 	"path/filepath"
@@ -493,18 +495,178 @@ func Tail(file string, bytesString string, linesString string, follow bool) erro
 	return nil
 }
 
-func Cp(src string, dst string) {
-
-	data, err := os.ReadFile(src)
+func isSymbolic(filePath string) (string, bool, error) {
+	fileInfo, err := os.Lstat(filePath)
 	if err != nil {
-		log.Fatal(err)
+		if os.IsNotExist(err) {
+			return "", false, fmt.Errorf("File '%s' does not exist.\n", filePath)
+		} else {
+			return "", false, fmt.Errorf("Error getting file info for '%s': %v\n", filePath, err)
+		}
 	}
 
-	err = os.WriteFile(dst, data, 0755)
-	if err != nil {
-		fmt.Println(err)
-		log.Fatal(err)
+	if fileInfo.Mode()&os.ModeSymlink != 0 {
+		target, err := os.Readlink(filePath)
+		if err != nil {
+			return "", false, fmt.Errorf("Error reading symlink target: %v\n", err)
+		} else {
+			return target, true, nil
+		}
+	} else {
+		return "", false, nil
 	}
+}
+
+func cpCopyFile(src, dst string, preserveAttributes bool) error {
+
+	srcFile, err := os.Open(src)
+	if err != nil {
+		return err
+	}
+
+	destFile, err := os.Create(dst)
+	if err != nil {
+		srcFile.Close()
+		return err
+	}
+
+	_, err = io.Copy(destFile, srcFile)
+
+	srcErr := srcFile.Close()
+	destErr := destFile.Close()
+
+	if preserveAttributes {
+		preserveFileAttributes(src, dst)
+	}
+
+	if err != nil {
+		return err
+	}
+	if srcErr != nil {
+		return srcErr
+	}
+	if destErr != nil {
+		return destErr
+	}
+
+	return nil
+}
+
+func preserveFileAttributes(src, dst string) error {
+	info, err := os.Lstat(src)
+	if err != nil {
+		return err
+	}
+	if err := os.Chmod(dst, info.Mode().Perm()); err != nil {
+		return err
+	}
+	stat, ok := info.Sys().(*syscall.Stat_t)
+	if ok {
+		atime := time.Unix(int64(stat.Atim.Sec), int64(stat.Atim.Nsec))
+		mtime := time.Unix(int64(stat.Mtim.Sec), int64(stat.Mtim.Nsec))
+		if err := os.Chtimes(dst, atime, mtime); err != nil {
+			return err
+		}
+		if err := os.Chown(dst, int(stat.Uid), int(stat.Gid)); err != nil && !errors.Is(err, syscall.EPERM) {
+			return err
+		}
+	}
+	return nil
+}
+
+func Cp(files []string, followSymbolic, recursive, dereference, nodereference, preserveAttributes bool) error {
+
+	isDir, _ := isDirectory(files[len(files)-1])
+
+	for i := range len(files) - 1 {
+		if target, isSym, err := isSymbolic(files[i]); followSymbolic && isSym {
+			if err != nil {
+				return err
+			}
+
+			files[i] = target
+		}
+
+		if recursive {
+			filepath.WalkDir(files[i], func(path string, d fs.DirEntry, err error) error {
+				rel, err := filepath.Rel(files[i], path)
+				if err != nil {
+					return err
+				}
+
+				if d.IsDir() {
+					err := os.MkdirAll(filepath.Join(files[len(files)-1], rel), 0750)
+					if err != nil {
+						return err
+					}
+
+					err = preserveFileAttributes(path, filepath.Join(files[len(files)-1], rel))
+					if err != nil {
+						log.Println(err)
+						return err
+					}
+
+				} else {
+					target, isSym, err := isSymbolic(path)
+					if err != nil {
+						return err
+					}
+
+					if nodereference && isSym {
+						err := os.Symlink(target, filepath.Join(files[len(files)-1], rel))
+						if err != nil {
+							log.Println(err)
+							return fmt.Errorf("%w", err)
+						}
+						return nil
+					}
+
+					if dereference && isSym {
+						path = target
+					}
+
+					err = cpCopyFile(path, filepath.Join(files[len(files)-1], rel), preserveAttributes)
+					if err != nil {
+						return err
+					}
+
+				}
+
+				return nil
+			})
+
+			return nil
+		}
+
+		if isDir {
+			err := cpCopyFile(files[i], filepath.Join(files[len(files)-1], filepath.Base(files[i])), preserveAttributes)
+			if err != nil {
+				return err
+			}
+		} else {
+
+			target, isSym, err := isSymbolic(files[i])
+			if err != nil {
+				return err
+			}
+
+			if nodereference && isSym {
+				err := os.Symlink(target, files[len(files)-1])
+				if err != nil {
+					log.Println(err)
+					return fmt.Errorf("%w", err)
+				}
+				return nil
+			}
+
+			err = cpCopyFile(files[i], files[len(files)-1], preserveAttributes)
+			if err != nil {
+				return err
+			}
+		}
+
+	}
+	return nil
 }
 
 func Cal(month string, year string) {
@@ -1228,6 +1390,128 @@ func Cut(files []string, characters, fields, delimiter string, separatedOnly boo
 			} else {
 				fmt.Println(line)
 			}
+		}
+	}
+	return nil
+}
+
+func moreSearch(input string, current *int, linesBuffer *[]string, totalLines int, caseInsensitive, tag bool) {
+	var contains bool
+	found := true
+	var term string
+	if tag {
+		term = input
+		found = false
+	} else if strings.HasPrefix(input, "/") && len(input) > 1 {
+		term = input[1:]
+		found = false
+	}
+
+	for i := *current; i < totalLines; i++ {
+		if caseInsensitive {
+			contains = strings.Contains(strings.ToLower((*linesBuffer)[i]), strings.ToLower(term))
+		} else {
+			contains = strings.Contains((*linesBuffer)[i], term)
+		}
+		if contains {
+			*current = i
+			found = true
+			break
+		}
+	}
+	if !found {
+		fmt.Println("\033[31mPattern not found.\033[0m")
+	}
+
+}
+
+func execCommand(commandString string) error {
+
+	commands := []string{}
+	if strings.Contains(commandString, ";") {
+		commands = strings.Split(commandString, ";")
+	} else {
+		commands = append(commands, commandString)
+	}
+
+	for _, command := range commands {
+		cmd := exec.Command("sh", "-c", command)
+		output, err := cmd.CombinedOutput()
+		if len(output) > 0 {
+			fmt.Print(string(output))
+		}
+		if err != nil {
+			return err
+		}
+
+	}
+	return nil
+}
+
+func More(files []string, clearFlag, caseInsensitive, squeeze bool, lines int, commandString, tag string) error {
+	rows := 24
+	if clearFlag {
+		cmd := exec.Command("clear")
+		cmd.Stdout = os.Stdout
+		if err := cmd.Run(); err != nil {
+			return fmt.Errorf("Error executing clear command: %w", err)
+		}
+	}
+
+	if lines > 0 {
+		rows = lines
+	}
+
+	for _, file := range files {
+		f, err := os.Open(file)
+		if err != nil {
+			return fmt.Errorf("Error opening file '%s': %w", file, err)
+		}
+		defer f.Close()
+
+		if commandString != "" {
+			err := execCommand(commandString)
+			if err != nil {
+				return fmt.Errorf("Error executing commands: %w", err)
+			}
+		}
+
+		scanner := bufio.NewScanner(f)
+		linesBuffer := []string{}
+		for scanner.Scan() {
+			linesBuffer = append(linesBuffer, scanner.Text())
+		}
+		totalLines := len(linesBuffer)
+		count, current := 0, 0
+
+		if tag != "" {
+			moreSearch(tag, &current, &linesBuffer, totalLines, caseInsensitive, true)
+		}
+
+		for current < totalLines {
+
+			if squeeze && linesBuffer[current] == "" && linesBuffer[current+1] == "" {
+				current++
+				continue
+			}
+
+			fmt.Println(linesBuffer[current])
+			current++
+			count++
+
+			if count == rows-1 {
+				reader := bufio.NewReader(os.Stdin)
+				fmt.Print("--More--")
+				input, _ := reader.ReadString('\n')
+				fmt.Printf("\033[1A\033[K")
+				count = rows - 2
+				input = strings.TrimSpace(input)
+				moreSearch(input, &current, &linesBuffer, totalLines, caseInsensitive, false)
+
+			}
+		}
+		if err := scanner.Err(); err != nil {
+			return fmt.Errorf("reading standard input: %w", err)
 		}
 	}
 	return nil

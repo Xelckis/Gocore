@@ -73,7 +73,17 @@ func main() {
 		}
 
 	case "cp":
-		utils.Cp(flag.Arg(1), flag.Arg(2))
+		cpCmd := flag.NewFlagSet("cp", flag.ExitOnError)
+		followSymbolicFlag := cpCmd.BoolP("follow-symbolic", "H", false, "follow command-line symbolic links in SOURCE")
+		recursiveFlag := cpCmd.BoolP("recursive", "r", false, "copy directories recursively")
+		dereferenceFlag := cpCmd.BoolP("dereference", "L", false, "always follow symbolic links in SOURCE")
+		noDereferenceFlag := cpCmd.BoolP("no-dereference", "P", false, "never follow symbolic links in SOURCE")
+		preserveFlag := cpCmd.BoolP("preserve", "p", false, "preserve the file attributes")
+		cpCmd.Parse(os.Args[2:])
+		err := utils.Cp(cpCmd.Args(), *followSymbolicFlag, *recursiveFlag, *dereferenceFlag, *noDereferenceFlag, *preserveFlag)
+		if err != nil {
+			fmt.Println(err)
+		}
 
 	case "cal":
 		calCmd := flag.NewFlagSet("cal", flag.ExitOnError)
@@ -162,6 +172,20 @@ func main() {
 		onlyDelimited := cutCmd.BoolP("only-delimited", "s", false, "do not print lines not containing delimiters")
 		cutCmd.Parse(os.Args[2:])
 		err := utils.Cut(cutCmd.Args(), *charFlag, *fieldFlag, *delimiterFlag, *onlyDelimited)
+		if err != nil {
+			fmt.Println(err)
+		}
+
+	case "more":
+		moreCmd := flag.NewFlagSet("more", flag.ExitOnError)
+		clearFlag := moreCmd.BoolP("clean-print", "c", false, "Do not scroll. Instead, paint each screen from the top, clearing the remainder of each line as it is displayed.")
+		linesFlag := moreCmd.IntP("lines", "n", 0, "Specify the number of lines per screenful. The number argument is a positive decimal integer. The --lines option shall override any values obtained from any other source, such as number of lines reported by terminal.")
+		caseFlag := moreCmd.BoolP("case-insensitive", "i", false, "Perform pattern matching in searches without regard to case")
+		commandFlag := moreCmd.StringP("command", "p", "", "Each time a screen from a new file is displayed or redisplayed (including as a result of more commands; for example, :p), execute the more command(s) in the command arguments in the order specified, as if entered by the user after the first screen has been displayed.")
+		tagFlag := moreCmd.StringP("tag", "t", "", "Start displaying the file from the first line containing the specified tag. If the tag is not found, display begins from the start of the file.")
+		squeezeFlag := moreCmd.BoolP("squeeze", "s", false, "Squeeze multiple blank lines into one.")
+		moreCmd.Parse(os.Args[2:])
+		err := utils.More(moreCmd.Args(), *clearFlag, *caseFlag, *squeezeFlag, *linesFlag, *commandFlag, *tagFlag)
 		if err != nil {
 			fmt.Println(err)
 		}
