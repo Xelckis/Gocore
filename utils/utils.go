@@ -19,9 +19,21 @@ import (
 	"syscall"
 	"text/tabwriter"
 	"time"
+	"unicode"
 )
 
-// make ls column view
+type fileInfoStruct struct {
+	name, perm, owner, group, targetSym string
+	numLinks, inode                     uint64
+	uid, gid                            uint32
+	size                                int64
+	sizeKb                              float64
+	ctime, mtime, atime                 time.Time
+	symbolic                            bool
+}
+type DirectoryListing map[string][]fs.DirEntry
+
+// Make ls column view
 func columnise(w *tabwriter.Writer, opt []string) {
 	for i := 0; i < len(opt); i += 3 {
 		if i == len(opt)-1 {
@@ -256,26 +268,26 @@ func rmRecursive(dir string, interactive bool, force bool) error {
 }
 
 // append indicator (one of /*@|) to entries
-func classifyVer(dir string, options *[]string) {
+func classifyVer(dir string, options *[]fileInfoStruct, classify bool) {
 	err := os.Chdir(dir)
 	if err != nil {
 		log.Fatal(err)
 	}
 	for idx, file := range *options {
-		fi, err := os.Lstat(file)
+		fi, err := os.Lstat(file.name)
 		if err != nil {
 			log.Fatal(err)
 		}
 
 		switch mode := fi.Mode(); {
 		case mode.IsDir():
-			(*options)[idx] = file + "/"
-		case mode&fs.ModeSymlink != 0:
-			(*options)[idx] = file + "@"
-		case mode&fs.ModeNamedPipe != 0:
-			(*options)[idx] = file + "|"
-		case mode&0111 != 0:
-			(*options)[idx] = file + "*"
+			(*options)[idx].name = file.name + "/"
+		case mode&fs.ModeSymlink != 0 && classify:
+			(*options)[idx].name = file.name + "@"
+		case mode&fs.ModeNamedPipe != 0 && classify:
+			(*options)[idx].name = file.name + "|"
+		case mode&0111 != 0 && classify:
+			(*options)[idx].name = file.name + "*"
 
 		}
 	}
@@ -326,28 +338,198 @@ func isDirectory(path string) (bool, error) {
 	return fileInfo.IsDir(), nil
 }
 
-func Ls(dir string, allDir bool, column bool, classify bool) {
-	// if no dir is specified use the current dir
-	if dir == "" {
-		dir, _ = os.Getwd()
+func lsfileinfo(dir, file string, result *[]fileInfoStruct, dereference, hideControlChars bool) error {
+	f := fileInfoStruct{name: file}
+
+	if hideControlChars {
+		var builder strings.Builder
+		for _, r := range f.name {
+			if unicode.IsPrint(r) {
+				builder.WriteRune(r)
+			} else {
+				builder.WriteRune('?')
+			}
+		}
+
+		f.name = builder.String()
 	}
 
-	files, err := os.ReadDir(dir)
+	filePath := filepath.Join(dir, file)
+
+	target, isSym, err := isSymbolic(filePath)
 	if err != nil {
-		log.Fatal(err)
+		return fmt.Errorf("Error dereferencing '%s': %v", file, err)
 	}
 
+	if isSym && dereference {
+		f.symbolic = true
+		f.targetSym = target
+		filePath = target
+	}
+
+	fileInfo, err := os.Lstat(filePath)
+	if err != nil {
+		return fmt.Errorf("Error obtaining '%s' information: %v", filePath, err)
+	}
+
+	f.size = fileInfo.Size()
+	f.sizeKb = float64(f.size) / 1024
+	f.perm = fileInfo.Mode().String()
+
+	sysData := fileInfo.Sys()
+
+	stat, ok := sysData.(*syscall.Stat_t)
+	if !ok {
+		return fmt.Errorf("Error obtaining syscall information '%s'.", filePath)
+	}
+
+	f.inode = stat.Ino
+	f.numLinks = stat.Nlink
+
+	f.uid = stat.Uid
+	f.gid = stat.Gid
+
+	u, err := osUser.LookupId(strconv.Itoa(int(f.uid)))
+	if err != nil {
+		f.owner = strconv.Itoa(int(f.uid))
+	} else {
+		f.owner = u.Username
+	}
+
+	g, err := osUser.LookupGroupId(strconv.Itoa(int(f.gid)))
+	if err != nil {
+		f.group = strconv.Itoa(int(f.gid))
+	} else {
+		f.group = g.Name
+	}
+
+	f.mtime = fileInfo.ModTime()
+	f.ctime = time.Unix(stat.Ctim.Sec, stat.Ctim.Nsec)
+	f.atime = time.Unix(stat.Atim.Sec, stat.Atim.Nsec)
+
+	*result = append(*result, f)
+
+	return nil
+}
+
+func lsFormatLine(i fileInfoStruct, omitOwner, omitGroup, kiloSize, ctime, numericUidGid, inode, accessTime bool) string {
+	var ownerStr, groupStr, sizeStr, timeStr, inodeStr, nameStr string
+
+	if i.symbolic {
+		nameStr = i.name + " -> " + i.targetSym
+	} else {
+		nameStr = i.name
+	}
+
+	if inode {
+		inodeStr = strconv.Itoa(int(i.inode))
+	} else {
+		inodeStr = ""
+	}
+
+	if omitOwner {
+		ownerStr = ""
+
+	} else if numericUidGid {
+		ownerStr = strconv.Itoa(int(i.uid))
+	} else {
+		ownerStr = i.owner
+	}
+
+	if omitGroup {
+		groupStr = ""
+	} else if numericUidGid {
+		groupStr = strconv.Itoa(int(i.gid))
+	} else {
+		groupStr = i.group
+	}
+
+	if kiloSize {
+		sizeStr = fmt.Sprintf("%.1fK", i.sizeKb)
+	} else {
+		sizeStr = fmt.Sprintf("%d", i.size)
+	}
+
+	if ctime {
+		timeStr = i.ctime.Format("Jan _2 15:04")
+	} else if accessTime {
+		timeStr = i.atime.Format("Jan _2 15:04")
+	} else {
+		timeStr = i.mtime.Format("Jan _2 15:04")
+	}
+
+	return fmt.Sprintf("%s %s %d %s %s %s %s %s\n",
+		inodeStr,
+		i.perm,
+		i.numLinks,
+		ownerStr,
+		groupStr,
+		sizeStr,
+		timeStr,
+		nameStr,
+	)
+}
+
+func lsPrinter(dir string, almostAllDir, allDir, classify, column, longListing, sortSize, kiloSize, streamFormat, omitOwner, omitGroup, ctime, numericUidGid, inode, dereference, onePerLine, sortmTime, indicatorStyle, hideControlChars, reverse, accessTime, noSort bool, files []os.DirEntry) {
 	var result []string
 
+	if allDir || noSort {
+		result = append(result, ".", "..")
+		almostAllDir = true
+	}
+
 	for _, file := range files {
-		if !strings.HasPrefix(file.Name(), ".") || allDir {
+		if !strings.HasPrefix(file.Name(), ".") || (almostAllDir || noSort) {
 			result = append(result, file.Name())
 		}
 
 	}
+	if !noSort {
+		sort.Slice(result, func(i, j int) bool {
+			if reverse {
+				return strings.ToLower(result[i]) > strings.ToLower(result[j])
+			} else {
+				return strings.ToLower(result[i]) < strings.ToLower(result[j])
+			}
+		})
+	}
 
-	if classify {
-		classifyVer(dir, &result)
+	var filesInfo []fileInfoStruct
+	for _, file := range result {
+		lsfileinfo(dir, file, &filesInfo, dereference, hideControlChars)
+	}
+
+	if sortSize && !noSort {
+		sort.Slice(filesInfo, func(i, j int) bool {
+			if reverse {
+				return filesInfo[i].size < filesInfo[j].size
+			} else {
+				return filesInfo[i].size > filesInfo[j].size
+			}
+		})
+
+	}
+
+	if sortmTime && !noSort {
+		sort.Slice(filesInfo, func(i, j int) bool {
+			if accessTime {
+				if reverse {
+					return filesInfo[i].atime.Format("Jan _2 15:04") < filesInfo[j].atime.Format("Jan _2 15:04")
+				} else {
+					return filesInfo[i].atime.Format("Jan _2 15:04") > filesInfo[j].atime.Format("Jan _2 15:04")
+				}
+			} else {
+				if reverse {
+					return filesInfo[i].mtime.Format("Jan _2 15:04") < filesInfo[j].mtime.Format("Jan _2 15:04")
+				} else {
+					return filesInfo[i].mtime.Format("Jan _2 15:04") > filesInfo[j].mtime.Format("Jan _2 15:04")
+				}
+			}
+		})
+	}
+
+	if classify || indicatorStyle {
+		classifyVer(dir, &filesInfo, classify)
 	}
 
 	// checks if column view is true and print the result in column view
@@ -355,17 +537,92 @@ func Ls(dir string, allDir bool, column bool, classify bool) {
 		w := new(tabwriter.Writer)
 		w.Init(os.Stdout, 0, 0, 10, ' ', 0)
 
-		sort.Strings(result)
 		columnise(w, result)
 
 		w.Flush()
 		return
 	}
 
-	for _, i := range result {
-		fmt.Println(i)
+	for _, i := range filesInfo {
+
+		switch {
+		case longListing:
+			fmt.Printf("%s", lsFormatLine(i, omitOwner, omitGroup, kiloSize, ctime, numericUidGid, inode, accessTime))
+		case streamFormat && inode:
+			fmt.Printf("%d %s, ", i.inode, i.name)
+		case streamFormat:
+			fmt.Printf("%s, ", i.name)
+		case inode:
+			fmt.Printf("%d %s  ", i.inode, i.name)
+		default:
+			fmt.Printf(" %s  ", i.name)
+		}
+		if onePerLine && !streamFormat {
+			fmt.Println()
+		}
+	}
+	fmt.Println()
+}
+
+func lsRecursive(rootDir string) (DirectoryListing, error) {
+	listings := make(DirectoryListing)
+
+	err := filepath.WalkDir(rootDir, func(path string, d fs.DirEntry, err error) error {
+		if err != nil {
+			return err
+		}
+
+		if d.IsDir() {
+			files, err := os.ReadDir(path)
+			if err != nil {
+				log.Printf("Error reading dir %q: %v\n", path, err)
+				return nil
+			}
+			listings[path] = files
+		}
+
+		return nil
+	})
+
+	if err != nil {
+		return nil, err
+	}
+	return listings, nil
+}
+
+func Ls(dirs []string, almostAllDir, column, classify, recursive, allDir, longListing, sortSize, kiloSize, streamFormat, omitOwner, omitGroup, ctime, numericUidGid, inode, dereference, onePerLine, sortmTime, indicatorStyle, hideControlChars, reverseSort, accessTime, noSort bool) {
+	if len(dirs) < 1 {
+		pwd, _ := os.Getwd()
+		dirs = append(dirs, pwd)
 	}
 
+	for _, dir := range dirs {
+		var listings DirectoryListing
+		var err error
+
+		if recursive {
+			listings, err = lsRecursive(dir)
+		} else {
+			var files []fs.DirEntry
+			files, err = os.ReadDir(dir)
+			if err == nil {
+				listings = DirectoryListing{dir: files}
+			}
+		}
+
+		if err != nil {
+			log.Printf("Error reading dir %s: %v", dir, err)
+			continue
+		}
+
+		for path, files := range listings {
+			if len(listings) > 1 {
+				fmt.Printf("\n\n%s:\n", path)
+			}
+
+			lsPrinter(path, almostAllDir, allDir, classify, column, longListing, sortSize, kiloSize, streamFormat, omitOwner, omitGroup, ctime, numericUidGid, inode, dereference, onePerLine, sortmTime, indicatorStyle, hideControlChars, reverseSort, accessTime, noSort, files)
+		}
+	}
 }
 
 func Mkdir(perm int, parents bool, dir []string) error {
