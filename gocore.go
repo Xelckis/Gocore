@@ -37,7 +37,11 @@ func main() {
 		accessTimeFlag := lsCmd.BoolP("access-time", "u", false, "Use time of last access instead of last modification of the file for sorting (−t) or writing (−l).")
 		noSortFlag := lsCmd.BoolP("no-sort", "f", false, "do not sort")
 		lsCmd.Parse(os.Args[2:])
-		utils.Ls(lsCmd.Args(), *AlmostallDir, *columnFlag, *classifyFlag, *recursiveFlag, *allDir, *longListingFlag, *sortSizeFlag, *sizeKbFlag, *streamFormatFlag, *omitOwnerFlag, *omitGroupFlag, *changeTimeFlag, *numericUidGidFlag, *showInodeFlag, *dereferenceFlag, *onePerLineFlag, *sortByMtimeFlag, *indicatorStyleFlag, *hideControlCharsFlag, *reverseSortFlag, *accessTimeFlag, *noSortFlag)
+		err := utils.Ls(lsCmd.Args(), *AlmostallDir, *columnFlag, *classifyFlag, *recursiveFlag, *allDir, *longListingFlag, *sortSizeFlag, *sizeKbFlag, *streamFormatFlag, *omitOwnerFlag, *omitGroupFlag, *changeTimeFlag, *numericUidGidFlag, *showInodeFlag, *dereferenceFlag, *onePerLineFlag, *sortByMtimeFlag, *indicatorStyleFlag, *hideControlCharsFlag, *reverseSortFlag, *accessTimeFlag, *noSortFlag)
+
+		if err != nil {
+			fmt.Println(err)
+		}
 
 	case "mkdir":
 		mkdirCmd := flag.NewFlagSet("mkdir", flag.ExitOnError)
@@ -106,7 +110,7 @@ func main() {
 	case "cal":
 		calCmd := flag.NewFlagSet("cal", flag.ExitOnError)
 		calCmd.Parse(os.Args[2:])
-		utils.Cal(calCmd.Arg(0), calCmd.Arg(1))
+		utils.Cal(calCmd.Args())
 
 	case "cmp":
 		cmpCmd := flag.NewFlagSet("cmp", flag.ExitOnError)
@@ -123,14 +127,22 @@ func main() {
 		interactiveFlag := mvCmd.BoolP("interactive", "i", false, "prompt before overwrite")
 		forceFlag := mvCmd.BoolP("force", "f", false, "do not prompt before overwriting")
 		mvCmd.Parse(os.Args[2:])
-		utils.Mv(mvCmd.Args(), *interactiveFlag, *forceFlag)
+		err := utils.Mv(mvCmd.Args(), *interactiveFlag, *forceFlag)
+
+		if err != nil {
+			fmt.Println(err)
+		}
 
 	case "tee":
 		teeCmd := flag.NewFlagSet("tee", flag.ExitOnError)
 		appendFlag := teeCmd.BoolP("append", "a", false, "append to the given FILEs, do not overwrite")
 		ignoreInterruptsFlag := teeCmd.BoolP("ignore-interrupts", "i", false, "ignore interrupt signals")
 		teeCmd.Parse(os.Args[2:])
-		utils.Tee(os.Stdin, teeCmd.Args(), *appendFlag, *ignoreInterruptsFlag)
+		err := utils.Tee(os.Stdin, teeCmd.Args(), *appendFlag, *ignoreInterruptsFlag)
+
+		if err != nil {
+			fmt.Println(err)
+		}
 
 	case "ln":
 		lnCmd := flag.NewFlagSet("ln", flag.ExitOnError)
@@ -139,14 +151,22 @@ func main() {
 		logicalFlag := lnCmd.BoolP("logical", "L", false, "dereference TARGETs that are symbolic links")
 		physicalFlag := lnCmd.BoolP("physical", "P", false, "make hard links directly to symbolic links")
 		lnCmd.Parse(os.Args[2:])
-		utils.Ln(lnCmd.Args(), *symlinkFlag, *forceFlag, *logicalFlag, *physicalFlag)
+		err := utils.Ln(lnCmd.Args(), *symlinkFlag, *forceFlag, *logicalFlag, *physicalFlag)
+
+		if err != nil {
+			fmt.Println(err)
+		}
 	case "comm":
 		commCmd := flag.NewFlagSet("comm", flag.ExitOnError)
 		com1Flag := commCmd.BoolP("1", "1", false, "suppress column 1 (lines unique to FILE1)")
 		com2Flag := commCmd.BoolP("2", "2", false, "suppress column 2 (lines unique to FILE2)")
 		com3Flag := commCmd.BoolP("3", "3", false, "suppress column 3 (lines that appear in both files)")
 		commCmd.Parse(os.Args[2:])
-		utils.Comm(commCmd.Arg(0), commCmd.Arg(1), *com1Flag, *com2Flag, *com3Flag)
+		err := utils.Comm(commCmd.Arg(0), commCmd.Arg(1), *com1Flag, *com2Flag, *com3Flag)
+
+		if err != nil {
+			fmt.Println(err)
+		}
 
 	case "chown":
 		chownCmd := flag.NewFlagSet("chown", flag.ExitOnError)
@@ -156,8 +176,11 @@ func main() {
 		logicalFlag := chownCmd.BoolP("logical", "L", false, "traverse every symbolic link to a directory encountered")
 		hybridFlag := chownCmd.BoolP("Hybrid", "H", false, "if a command line argument is a symbolic link to a directory, traverse it")
 		chownCmd.Parse(os.Args[2:])
-		utils.Chown(chownCmd.Arg(0), chownCmd.Args()[1:], *noDereferenceFlag, *recursiveFlag, *physicalFlag, *logicalFlag, *hybridFlag)
+		err := utils.Chown(chownCmd.Arg(0), chownCmd.Args()[1:], *noDereferenceFlag, *recursiveFlag, *physicalFlag, *logicalFlag, *hybridFlag)
 
+		if err != nil {
+			fmt.Println(err)
+		}
 	case "touch":
 		touchCmd := flag.NewFlagSet("touch", flag.ExitOnError)
 		noCreateFlag := touchCmd.BoolP("no-create", "c", false, "do not create any files")
@@ -168,6 +191,7 @@ func main() {
 		referenceFlag := touchCmd.BoolP("reference", "r", false, "use this file's times instead of current time")
 		touchCmd.Parse(os.Args[2:])
 		err := utils.Touch(touchCmd.Args(), *noCreateFlag, *accessOnlyFlag, *modifyOnlyFlag, *dateFlag, *timestampFlag, *referenceFlag)
+
 		if err != nil {
 			fmt.Println(err)
 		}
@@ -180,8 +204,11 @@ func main() {
 		fieldsFlag := uniqCmd.UintP("skip-fields", "f", 1, "avoid comparing the first N fields")
 		charsFlag := uniqCmd.UintP("skip-chars", "s", 1, "avoid comparing the first N characters")
 		uniqCmd.Parse(os.Args[2:])
-		utils.Uniq(uniqCmd.Arg(0), uniqCmd.Arg(1), *repeatedFlag, *uniqueFlag, *counterFlag, *fieldsFlag, *charsFlag)
+		err := utils.Uniq(uniqCmd.Arg(0), uniqCmd.Arg(1), *repeatedFlag, *uniqueFlag, *counterFlag, *fieldsFlag, *charsFlag)
 
+		if err != nil {
+			fmt.Println(err)
+		}
 	case "cut":
 		cutCmd := flag.NewFlagSet("cut", flag.ExitOnError)
 		charFlag := cutCmd.StringP("characters", "c", "", "select only these characters")
@@ -190,6 +217,7 @@ func main() {
 		onlyDelimited := cutCmd.BoolP("only-delimited", "s", false, "do not print lines not containing delimiters")
 		cutCmd.Parse(os.Args[2:])
 		err := utils.Cut(cutCmd.Args(), *charFlag, *fieldFlag, *delimiterFlag, *onlyDelimited)
+
 		if err != nil {
 			fmt.Println(err)
 		}
@@ -204,6 +232,7 @@ func main() {
 		squeezeFlag := moreCmd.BoolP("squeeze", "s", false, "Squeeze multiple blank lines into one.")
 		moreCmd.Parse(os.Args[2:])
 		err := utils.More(moreCmd.Args(), *clearFlag, *caseFlag, *squeezeFlag, *linesFlag, *commandFlag, *tagFlag)
+
 		if err != nil {
 			fmt.Println(err)
 		}

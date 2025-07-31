@@ -22,6 +22,7 @@ import (
 	"unicode"
 )
 
+// This struct is used to save each file informations (Ls)
 type fileInfoStruct struct {
 	name, perm, owner, group, targetSym string
 	numLinks, inode                     uint64
@@ -33,7 +34,7 @@ type fileInfoStruct struct {
 }
 type DirectoryListing map[string][]fs.DirEntry
 
-// Make ls column view
+// Make ls column view (Ls)
 func columnise(w *tabwriter.Writer, opt []string) {
 	for i := 0; i < len(opt); i += 3 {
 		if i == len(opt)-1 {
@@ -46,6 +47,7 @@ func columnise(w *tabwriter.Writer, opt []string) {
 	}
 }
 
+// Prints n bytes of a file (Cat)
 func catBytePrinter(file string) error {
 	files, err := os.Open(file)
 	if err != nil {
@@ -76,8 +78,9 @@ func catBytePrinter(file string) error {
 
 }
 
+// Prints n bytes before last byte of a file (Tail)
 func tailBytePrinter(f *os.File, bytesString string) error {
-	bytes, err := strconv.Atoi(strings.TrimPrefix(bytesString, "+"))
+	bytes, err := strconv.Atoi(strings.TrimPrefix(bytesString, "+")) //convert string to int and remove + sign if it has.
 	if err != nil {
 		return fmt.Errorf("cannot convert %s to int: %w", bytesString, err)
 	}
@@ -104,6 +107,7 @@ func tailBytePrinter(f *os.File, bytesString string) error {
 	return nil
 }
 
+// watch for any new byte added to the file and prints any byte added (Tail)
 func tailFollow(f *os.File, linesString string, bytesString string) error {
 	if bytesString != "0" {
 		tailBytePrinter(f, bytesString)
@@ -145,6 +149,7 @@ func tailFollow(f *os.File, linesString string, bytesString string) error {
 
 }
 
+// Prints las n lines of a file (Tail)
 func tailLinePrinter(f *os.File, linesString string) error {
 	lines, err := strconv.Atoi(strings.TrimPrefix(linesString, "+"))
 	if err != nil {
@@ -190,6 +195,7 @@ func tailLinePrinter(f *os.File, linesString string) error {
 	return nil
 }
 
+// Prompts a confirmation message (Rm)
 func promptFile(path string) bool {
 	var answer string
 	fmt.Printf("rm: remove '%s'? ", path)
@@ -203,10 +209,11 @@ func promptFile(path string) bool {
 		return true
 	}
 
-	fmt.Printf("arquivo '%s' não removido\n", path)
+	fmt.Printf("rm: File '%s' not removed\n", path)
 	return false
 }
 
+// Verifies if a file is Read-Only
 func isReadOnly(path string) (bool, error) {
 	info, err := os.Stat(path)
 	if err != nil {
@@ -220,6 +227,7 @@ func isReadOnly(path string) (bool, error) {
 	return isProtected, nil
 }
 
+// Make parents of a dir (Mkdir)
 func mkdirParents(perm int, files string) error {
 
 	dir := strings.Split(files, "/")
@@ -237,6 +245,7 @@ func mkdirParents(perm int, files string) error {
 	return nil
 }
 
+// Remove files recursively
 func rmRecursive(dir string, interactive bool, force bool) error {
 	itens, err := os.ReadDir(dir)
 	if err != nil {
@@ -249,7 +258,7 @@ func rmRecursive(dir string, interactive bool, force bool) error {
 		if item.IsDir() {
 			err := rmRecursive(fullPath, interactive, force)
 			if err != nil {
-				return fmt.Errorf("aviso: erro no subdiretório %s: %v\n", fullPath, err)
+				return fmt.Errorf("Error at %s: %v\n", fullPath, err)
 			}
 			os.Remove(fullPath)
 		} else {
@@ -267,7 +276,7 @@ func rmRecursive(dir string, interactive bool, force bool) error {
 
 }
 
-// append indicator (one of /*@|) to entries
+// append indicator (one of /*@|) to entries (Ls)
 func classifyVer(dir string, options *[]fileInfoStruct, classify bool) {
 	err := os.Chdir(dir)
 	if err != nil {
@@ -293,6 +302,7 @@ func classifyVer(dir string, options *[]fileInfoStruct, classify bool) {
 	}
 }
 
+// Check if a file exist
 func fileExists(filePath string) bool {
 	_, err := os.Stat(filePath)
 	if err == nil {
@@ -301,6 +311,7 @@ func fileExists(filePath string) bool {
 	return false
 }
 
+// Prompt for mv (Mv)
 func mvPrompt(file string) bool {
 	var answer string
 	fmt.Printf("mv: Overwrite '%s'? ", file)
@@ -316,6 +327,7 @@ func mvPrompt(file string) bool {
 	return true
 }
 
+// Ln force (-f) option (Ln)
 func lnForce(file string) error {
 	if exist := fileExists(file); exist {
 		err := os.Remove(file)
@@ -327,6 +339,7 @@ func lnForce(file string) error {
 	return nil
 }
 
+// Check if the path is a folder
 func isDirectory(path string) (bool, error) {
 	fileInfo, err := os.Stat(path)
 	if err != nil {
@@ -338,6 +351,7 @@ func isDirectory(path string) (bool, error) {
 	return fileInfo.IsDir(), nil
 }
 
+// Get all informations of a file (Ls)
 func lsfileinfo(dir, file string, result *[]fileInfoStruct, dereference, hideControlChars bool) error {
 	f := fileInfoStruct{name: file}
 
@@ -412,6 +426,7 @@ func lsfileinfo(dir, file string, result *[]fileInfoStruct, dereference, hideCon
 	return nil
 }
 
+// Format the string used in ls -l (Ls)
 func lsFormatLine(i fileInfoStruct, omitOwner, omitGroup, kiloSize, ctime, numericUidGid, inode, accessTime bool) string {
 	var ownerStr, groupStr, sizeStr, timeStr, inodeStr, nameStr string
 
@@ -470,6 +485,7 @@ func lsFormatLine(i fileInfoStruct, omitOwner, omitGroup, kiloSize, ctime, numer
 	)
 }
 
+// Responsible to prepare and print the output according to the chosen ls flags (Ls)
 func lsPrinter(dir string, almostAllDir, allDir, classify, column, longListing, sortSize, kiloSize, streamFormat, omitOwner, omitGroup, ctime, numericUidGid, inode, dereference, onePerLine, sortmTime, indicatorStyle, hideControlChars, reverse, accessTime, noSort bool, files []os.DirEntry) {
 	var result []string
 
@@ -564,6 +580,7 @@ func lsPrinter(dir string, almostAllDir, allDir, classify, column, longListing, 
 	fmt.Println()
 }
 
+// Store recursively every dir and their files (Ls)
 func lsRecursive(rootDir string) (DirectoryListing, error) {
 	listings := make(DirectoryListing)
 
@@ -575,8 +592,8 @@ func lsRecursive(rootDir string) (DirectoryListing, error) {
 		if d.IsDir() {
 			files, err := os.ReadDir(path)
 			if err != nil {
-				log.Printf("Error reading dir %q: %v\n", path, err)
-				return nil
+				return fmt.Errorf("Error reading dir %q: %v\n", path, err)
+
 			}
 			listings[path] = files
 		}
@@ -590,7 +607,7 @@ func lsRecursive(rootDir string) (DirectoryListing, error) {
 	return listings, nil
 }
 
-func Ls(dirs []string, almostAllDir, column, classify, recursive, allDir, longListing, sortSize, kiloSize, streamFormat, omitOwner, omitGroup, ctime, numericUidGid, inode, dereference, onePerLine, sortmTime, indicatorStyle, hideControlChars, reverseSort, accessTime, noSort bool) {
+func Ls(dirs []string, almostAllDir, column, classify, recursive, allDir, longListing, sortSize, kiloSize, streamFormat, omitOwner, omitGroup, ctime, numericUidGid, inode, dereference, onePerLine, sortmTime, indicatorStyle, hideControlChars, reverseSort, accessTime, noSort bool) error {
 	if len(dirs) < 1 {
 		pwd, _ := os.Getwd()
 		dirs = append(dirs, pwd)
@@ -602,6 +619,9 @@ func Ls(dirs []string, almostAllDir, column, classify, recursive, allDir, longLi
 
 		if recursive {
 			listings, err = lsRecursive(dir)
+			if err != nil {
+				return fmt.Errorf("Ls Recursive: %w", err)
+			}
 		} else {
 			var files []fs.DirEntry
 			files, err = os.ReadDir(dir)
@@ -623,13 +643,14 @@ func Ls(dirs []string, almostAllDir, column, classify, recursive, allDir, longLi
 			lsPrinter(path, almostAllDir, allDir, classify, column, longListing, sortSize, kiloSize, streamFormat, omitOwner, omitGroup, ctime, numericUidGid, inode, dereference, onePerLine, sortmTime, indicatorStyle, hideControlChars, reverseSort, accessTime, noSort, files)
 		}
 	}
+	return nil
 }
 
 func Mkdir(perm int, parents bool, dir []string) error {
 	for _, files := range dir {
 		err := os.Mkdir(files, os.FileMode(perm))
 
-		if err != nil { // Só entramos no switch se houver um erro
+		if err != nil {
 			switch {
 			case os.IsExist(err):
 				return fmt.Errorf("Directory '%s' already exists.", files)
@@ -641,7 +662,7 @@ func Mkdir(perm int, parents bool, dir []string) error {
 				}
 
 			default:
-				return fmt.Errorf("%w", err)
+				return fmt.Errorf("Error creating '%s': %w", files, err)
 			}
 		}
 
@@ -752,6 +773,7 @@ func Tail(file string, bytesString string, linesString string, follow bool) erro
 	return nil
 }
 
+// Check if a file is a symbolic link
 func isSymbolic(filePath string) (string, bool, error) {
 	fileInfo, err := os.Lstat(filePath)
 	if err != nil {
@@ -774,17 +796,18 @@ func isSymbolic(filePath string) (string, bool, error) {
 	}
 }
 
+// Copies source_file data to another file (Cp)
 func cpCopyFile(src, dst string, preserveAttributes bool) error {
 
 	srcFile, err := os.Open(src)
 	if err != nil {
-		return err
+		return fmt.Errorf("Error opeaning '%s': %v", src, err)
 	}
 
 	destFile, err := os.Create(dst)
 	if err != nil {
 		srcFile.Close()
-		return err
+		return fmt.Errorf("Error opeaning '%s': %v", dst, err)
 	}
 
 	_, err = io.Copy(destFile, srcFile)
@@ -809,10 +832,11 @@ func cpCopyFile(src, dst string, preserveAttributes bool) error {
 	return nil
 }
 
+// Preserve atime, mtime and permissions of a file (Cp)
 func preserveFileAttributes(src, dst string) error {
 	info, err := os.Lstat(src)
 	if err != nil {
-		return err
+		return fmt.Errorf("Error obtaining file information: %w", err)
 	}
 	if err := os.Chmod(dst, info.Mode().Perm()); err != nil {
 		return err
@@ -822,10 +846,10 @@ func preserveFileAttributes(src, dst string) error {
 		atime := time.Unix(int64(stat.Atim.Sec), int64(stat.Atim.Nsec))
 		mtime := time.Unix(int64(stat.Mtim.Sec), int64(stat.Mtim.Nsec))
 		if err := os.Chtimes(dst, atime, mtime); err != nil {
-			return err
+			return fmt.Errorf("Error changing atime and mtime: %w", err)
 		}
 		if err := os.Chown(dst, int(stat.Uid), int(stat.Gid)); err != nil && !errors.Is(err, syscall.EPERM) {
-			return err
+			return fmt.Errorf("Error changing file permisions: %w", err)
 		}
 	}
 	return nil
@@ -854,12 +878,11 @@ func Cp(files []string, followSymbolic, recursive, dereference, nodereference, p
 				if d.IsDir() {
 					err := os.MkdirAll(filepath.Join(files[len(files)-1], rel), 0750)
 					if err != nil {
-						return err
+						return fmt.Errorf("Error creating dirs: %w", err)
 					}
 
 					err = preserveFileAttributes(path, filepath.Join(files[len(files)-1], rel))
 					if err != nil {
-						log.Println(err)
 						return err
 					}
 
@@ -872,8 +895,7 @@ func Cp(files []string, followSymbolic, recursive, dereference, nodereference, p
 					if nodereference && isSym {
 						err := os.Symlink(target, filepath.Join(files[len(files)-1], rel))
 						if err != nil {
-							log.Println(err)
-							return fmt.Errorf("%w", err)
+							return fmt.Errorf("Error creating symbolic link: %w", err)
 						}
 						return nil
 					}
@@ -910,8 +932,7 @@ func Cp(files []string, followSymbolic, recursive, dereference, nodereference, p
 			if nodereference && isSym {
 				err := os.Symlink(target, files[len(files)-1])
 				if err != nil {
-					log.Println(err)
-					return fmt.Errorf("%w", err)
+					return fmt.Errorf("Error creating symbolic link: %w", err)
 				}
 				return nil
 			}
@@ -926,43 +947,105 @@ func Cp(files []string, followSymbolic, recursive, dereference, nodereference, p
 	return nil
 }
 
-func Cal(month string, year string) {
+// getMonthLines is a helper function that prints the calendar for a specific month and year.
+func getMonthLines(year int, month time.Month) []string {
+	var lines []string
 
-	monthInt, err := strconv.Atoi(month)
-	if err != nil {
-		monthInt = int(time.Now().Month())
+	monthHeader := fmt.Sprintf("%s %d", month.String(), year)
+	centeredHeader := fmt.Sprintf("%*s", -10-len(monthHeader)/2, fmt.Sprintf("%*s", 10+len(monthHeader)/2, monthHeader))
+	lines = append(lines, centeredHeader)
+
+	lines = append(lines, "Su Mo Tu We Th Fr Sa")
+
+	firstOfMonth := time.Date(year, month, 1, 0, 0, 0, 0, time.Local)
+	lastDayOfMonth := time.Date(year, month+1, 0, 0, 0, 0, 0, time.Local)
+
+	var currentLine strings.Builder
+	currentLine.WriteString(strings.Repeat("   ", int(firstOfMonth.Weekday())))
+
+	for day := 1; day <= lastDayOfMonth.Day(); day++ {
+		currentLine.WriteString(fmt.Sprintf("%2d ", day))
+
+		if (day+int(firstOfMonth.Weekday()))%7 == 0 {
+			lines = append(lines, strings.TrimRight(currentLine.String(), " "))
+			currentLine.Reset()
+		}
 	}
 
-	yearInt, _ := strconv.Atoi(year)
-	if err != nil {
-		yearInt = time.Now().Year()
-	}
-	w := tabwriter.NewWriter(os.Stdout, 0, 0, 1, ' ', tabwriter.AlignRight)
-
-	currentTime := time.Date(yearInt, time.Month(monthInt), 1, 0, 0, 0, 0, time.Local)
-	lastDayOfMonth := time.Date(currentTime.Year(), currentTime.Month()+1, 0, 0, 0, 0, 0, currentTime.Location())
-	firstOfMonth := time.Date(currentTime.Year(), currentTime.Month(), 1, 0, 0, 0, 0, currentTime.Location())
-
-	fmt.Fprintf(w, "\t\t%s %d\n", currentTime.Month(), currentTime.Year())
-
-	fmt.Fprintln(w, "Su\tMo\tTu\tWe\tTh\tFr\tSa\t")
-
-	for range int(firstOfMonth.Weekday()) {
-		fmt.Fprintf(w, " \t")
+	if currentLine.Len() > 0 {
+		lines = append(lines, strings.TrimRight(currentLine.String(), " "))
 	}
 
-	for i := 1; i <= int(lastDayOfMonth.Day()); i++ {
-		fmt.Fprintf(w, "%d\t", i)
+	return lines
+}
 
-		if (i+int(firstOfMonth.Weekday()))%7 == 0 {
-			fmt.Fprintln(w)
+func Cal(date []string) {
+	if len(date) == 1 {
+		year, err := strconv.Atoi(date[0])
+		if err != nil {
+			year = time.Now().Year()
 		}
 
+		fmt.Printf("%27s\n", strconv.Itoa(year))
+
+		for row := 0; row < 4; row++ {
+			month1 := time.Month(row*3 + 1)
+			month2 := time.Month(row*3 + 2)
+			month3 := time.Month(row*3 + 3)
+
+			lines1 := getMonthLines(year, month1)
+			lines2 := getMonthLines(year, month2)
+			lines3 := getMonthLines(year, month3)
+
+			fmt.Printf("%-22s  %-22s  %-22s\n", lines1[0], lines2[0], lines3[0])
+			fmt.Printf("%-22s  %-22s  %-22s\n", lines1[1], lines2[1], lines3[1])
+
+			maxLines := len(lines1)
+			if len(lines2) > maxLines {
+				maxLines = len(lines2)
+			}
+			if len(lines3) > maxLines {
+				maxLines = len(lines3)
+			}
+
+			for i := 2; i < maxLines; i++ {
+				line1, line2, line3 := "", "", ""
+				if i < len(lines1) {
+					line1 = lines1[i]
+				}
+				if i < len(lines2) {
+					line2 = lines2[i]
+				}
+				if i < len(lines3) {
+					line3 = lines3[i]
+				}
+				fmt.Printf("%-22s  %-22s  %-22s\n", line1, line2, line3)
+			}
+		}
+		return
 	}
-	fmt.Fprintln(w)
 
-	w.Flush()
+	month := int(time.Now().Month())
+	year := time.Now().Year()
+	var err error
 
+	if len(date) >= 1 {
+		month, err = strconv.Atoi(date[0])
+		if err != nil || month < 1 || month > 12 {
+			month = int(time.Now().Month())
+		}
+	}
+	if len(date) >= 2 {
+		year, err = strconv.Atoi(date[1])
+		if err != nil {
+			year = time.Now().Year()
+		}
+	}
+
+	lines := getMonthLines(year, time.Month(month))
+	for _, line := range lines {
+		fmt.Println(line)
+	}
 }
 
 func Cmp(file1 string, file2 string, verbose bool, quiet bool) (bool, int, error) {
@@ -1125,18 +1208,22 @@ func Tee(source io.Reader, files []string, appendFlag bool, ignoreInterrupts boo
 	return nil
 }
 
-func Ln(files []string, symbolic bool, force bool, logical bool, physical bool) {
+func Ln(files []string, symbolic bool, force bool, logical bool, physical bool) error {
 	var err error
 	isDir, _ := isDirectory(files[len(files)-1])
 
 	if force {
 		if isDir {
 			for i := range len(files) - 1 {
-				lnForce(filepath.Join(files[len(files)-1], files[i]))
+				err = lnForce(filepath.Join(files[len(files)-1], files[i]))
 			}
 		} else {
-			lnForce(files[1])
+			err = lnForce(files[1])
 		}
+	}
+
+	if err != nil {
+		return err
 	}
 
 	for i := range len(files) - 1 {
@@ -1151,13 +1238,13 @@ func Ln(files []string, symbolic bool, force bool, logical bool, physical bool) 
 			if isDir {
 				finalFile, errEval := filepath.EvalSymlinks(files[i])
 				if errEval != nil {
-					log.Fatal(errEval)
+					return fmt.Errorf("Error dereferencing link: %w", errEval)
 				}
 				err = os.Link(finalFile, filepath.Join(files[len(files)-1], files[i]))
 			} else {
 				finalFile, errEval := filepath.EvalSymlinks(files[0])
 				if errEval != nil {
-					log.Fatal(errEval)
+					return fmt.Errorf("Error dereferencing link: %w", errEval)
 				}
 				err = os.Link(finalFile, files[1])
 			}
@@ -1176,11 +1263,11 @@ func Ln(files []string, symbolic bool, force bool, logical bool, physical bool) 
 		}
 
 		if err != nil {
-			fmt.Printf("Erro link: %v\n", err)
+			return fmt.Errorf("Error creating link: %v", err)
 		}
 
 	}
-
+	return nil
 }
 
 func Comm(file1 string, file2 string, noCol1 bool, noCol2 bool, noCol3 bool) error {
@@ -1237,6 +1324,7 @@ func Comm(file1 string, file2 string, noCol1 bool, noCol2 bool, noCol3 bool) err
 	return nil
 }
 
+// Change files ownership recursively (Chown)
 func chownRecursive(physical bool, logical bool, uid int, gid int) fs.WalkDirFunc {
 	switch {
 	case physical || (!physical && !logical):
@@ -1352,6 +1440,7 @@ func Chown(ug string, files []string, noDereference bool, recursive bool, physic
 	return nil
 }
 
+// Touch timestamp layout (Touch)
 func getTouchTLayout(timeString string) (string, error) {
 	hasDot := strings.Contains(timeString, ".")
 	length := len(timeString)
@@ -1519,13 +1608,14 @@ func Uniq(input string, output string, duplicated bool, unique bool, counter boo
 	if outputFileBool {
 		err := os.WriteFile(output, textBytes, 0666)
 		if err != nil {
-			log.Fatal(err)
+			return fmt.Errorf("Error writing on file '%s': %w", output, err)
 		}
 	}
 
 	return nil
 }
 
+// Process list (2-;3-7;-3) in flags like -c (Cut)
 func cutList(list string) (nums [][2]int, err error) {
 	fields := strings.Split(list, ",")
 	for _, f := range fields {
@@ -1536,13 +1626,14 @@ func cutList(list string) (nums [][2]int, err error) {
 		if strings.HasPrefix(f, "-") {
 			end, err := strconv.Atoi(strings.TrimPrefix(f, "-"))
 			if err != nil {
-				return nil, fmt.Errorf("intervalo inválido: %v", f)
+				return nil, fmt.Errorf("Invalid interval: %v", f)
 			}
 			nums = append(nums, [2]int{0, end})
 		} else if strings.HasSuffix(f, "-") {
 			start, err := strconv.Atoi(strings.TrimSuffix(f, "-"))
 			if err != nil {
-				return nil, fmt.Errorf("intervalo inválido: %v", f)
+				return nil, fmt.Errorf("Invalid interval: %v", f)
+
 			}
 			nums = append(nums, [2]int{start - 1, -1})
 		} else if strings.Contains(f, "-") {
@@ -1550,13 +1641,13 @@ func cutList(list string) (nums [][2]int, err error) {
 			start, err1 := strconv.Atoi(parts[0])
 			end, err2 := strconv.Atoi(parts[1])
 			if err1 != nil || err2 != nil {
-				return nil, fmt.Errorf("intervalo inválido: %v", f)
+				return nil, fmt.Errorf("Invalid interval: %v", f)
 			}
 			nums = append(nums, [2]int{start - 1, end})
 		} else {
 			pos, err := strconv.Atoi(f)
 			if err != nil {
-				return nil, fmt.Errorf("número inválido: %v", f)
+				return nil, fmt.Errorf("Invalid number: %v", f)
 			}
 			nums = append(nums, [2]int{pos - 1, pos})
 		}
@@ -1590,7 +1681,7 @@ func Cut(files []string, characters, fields, delimiter string, separatedOnly boo
 	for _, file := range files {
 		f, err := os.Open(file)
 		if err != nil {
-			return err
+			return fmt.Errorf("Error opening file '%s': %w", file, err)
 		}
 		defer f.Close()
 
@@ -1652,6 +1743,7 @@ func Cut(files []string, characters, fields, delimiter string, separatedOnly boo
 	return nil
 }
 
+// Searches for a specific word/pharse (More)
 func moreSearch(input string, current *int, linesBuffer *[]string, totalLines int, caseInsensitive, tag bool) {
 	var contains bool
 	found := true
@@ -1682,6 +1774,7 @@ func moreSearch(input string, current *int, linesBuffer *[]string, totalLines in
 
 }
 
+// Exec commands passed through -p flag (More)
 func execCommand(commandString string) error {
 
 	commands := []string{}
