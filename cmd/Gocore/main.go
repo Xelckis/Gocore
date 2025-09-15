@@ -7,6 +7,7 @@ import (
 	"github.com/xelckis/gocore/internal/utils/chown"
 	"github.com/xelckis/gocore/internal/utils/head"
 	"github.com/xelckis/gocore/internal/utils/mkdir"
+	"github.com/xelckis/gocore/internal/utils/mv"
 	"os"
 )
 
@@ -18,6 +19,7 @@ func main() {
 		"cat":   cat.Exec,
 		"head":  head.Exec,
 		"mkdir": mkdir.Exec,
+		"mv":    mv.Exec,
 	}
 
 	prog, ok := progs[os.Args[1]]
